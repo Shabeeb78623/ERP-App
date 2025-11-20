@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, BenefitRecord, Notification } from '../types';
 import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck } from 'lucide-react';
@@ -5,6 +6,7 @@ import { StorageService } from '../services/storageService';
 
 interface BaseProps {
     user: User;
+    isLoading?: boolean;
 }
 
 // --- User Benefits View ---
@@ -68,7 +70,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
         if (newPassword !== confirmNewPassword) return alert("Passwords do not match");
         if (newPassword.length < 6) return alert("Password too short");
         onUpdateUser(user.id, { password: newPassword });
-        alert("Password updated.");
+        alert("Password update initiated.");
         setNewPassword('');
         setConfirmNewPassword('');
     };
@@ -138,20 +140,25 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
 // --- Notifications View ---
 export const UserNotifications: React.FC<BaseProps> = ({ user }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const allNotifs = StorageService.getNotifications();
-        const myNotifs = allNotifs.filter(n => {
-             if (n.recipients && n.recipients.includes(user.id)) return true;
-             if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
-             if (n.targetAudience === `${user.mandalam} Members`) return true;
-             return false;
-        });
-        setNotifications(myNotifs);
+        const fetchNotifs = async () => {
+            const allNotifs = await StorageService.getNotifications();
+            const myNotifs = allNotifs.filter(n => {
+                 if (n.recipients && n.recipients.includes(user.id)) return true;
+                 if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
+                 if (n.targetAudience === `${user.mandalam} Members`) return true;
+                 return false;
+            });
+            setNotifications(myNotifs);
+            setLoading(false);
+        };
+        fetchNotifs();
     }, [user]);
 
-    const handleClear = (id: string) => {
-        StorageService.deleteNotification(id); 
+    const handleClear = async (id: string) => {
+        await StorageService.deleteNotification(id); 
         setNotifications(notifications.filter(n => n.id !== id));
     }
 
@@ -164,7 +171,9 @@ export const UserNotifications: React.FC<BaseProps> = ({ user }) => {
                 </div>
 
                 <div className="space-y-4">
-                    {notifications.length > 0 ? (
+                    {loading ? (
+                         <p className="text-center py-10 text-slate-400">Loading messages...</p>
+                    ) : notifications.length > 0 ? (
                         notifications.map(n => (
                             <div key={n.id} className="p-5 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-colors group">
                                 <div className="flex justify-between items-start mb-2">

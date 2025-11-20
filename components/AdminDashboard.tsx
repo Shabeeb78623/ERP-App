@@ -12,6 +12,7 @@ interface AdminDashboardProps {
   onUpdateUser: (userId: string, updates: Partial<User>) => void;
   onAddBenefit: (benefit: BenefitRecord) => void;
   onDeleteBenefit: (id: string) => void;
+  isLoading: boolean;
 }
 
 const TABS = [
@@ -19,17 +20,21 @@ const TABS = [
   'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year'
 ];
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats, onUpdateUser, onAddBenefit, onDeleteBenefit }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, isLoading }) => {
   const [activeTab, setActiveTab] = useState('Users Overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [isBenefitModalOpen, setIsBenefitModalOpen] = useState(false);
   const [adminSearchTerm, setAdminSearchTerm] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [batchMandalam, setBatchMandalam] = useState<string>('');
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMessage, setNotifMessage] = useState('');
   const [notifTarget, setNotifTarget] = useState('ALL');
   const [years, setYears] = useState<YearConfig[]>([]);
+  
+  // Benefit Search State
+  const [benefitUserSearch, setBenefitUserSearch] = useState('');
   const [benefitForm, setBenefitForm] = useState({
       userId: '',
       type: BenefitType.HOSPITAL,
@@ -48,7 +53,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
   const [filterPayment, setFilterPayment] = useState('All Payment');
 
   useEffect(() => {
-      setYears(StorageService.getYears());
+      const loadYears = async () => {
+          const y = await StorageService.getYears();
+          setYears(y);
+      }
+      loadYears();
   }, []);
 
   const visibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN);
@@ -97,16 +106,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
       onAddBenefit(newBenefit);
       setIsBenefitModalOpen(false);
       setBenefitForm({ userId: '', type: BenefitType.HOSPITAL, amount: '', remarks: '' });
+      setBenefitUserSearch('');
   };
 
-  const handleSendNotification = () => {
+  const handleSendNotification = async () => {
       if (!notifTitle || !notifMessage) {
           alert("Please enter title and message");
           return;
       }
       const recipients = notifTarget === 'ALL' ? undefined : visibleUsers.filter(u => u.mandalam === notifTarget).map(u => u.id);
 
-      StorageService.addNotification({
+      await StorageService.addNotification({
           id: `notif-${Date.now()}`,
           title: notifTitle,
           message: notifMessage,
@@ -128,22 +138,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
       
       const reader = new FileReader();
       reader.onload = (e) => {
-          setTimeout(() => {
+          setTimeout(async () => {
             try {
                 const text = e.target?.result as string;
                 const rows = text.split(/\r?\n/).slice(1); 
                 const currentYear = new Date().getFullYear();
-                let currentSeq = StorageService.getNextSequence(currentYear);
+                let currentSeq = await StorageService.getNextSequence(currentYear);
                 const newUsers: User[] = [];
 
-                rows.forEach((row) => {
-                    if (!row.trim()) return;
-                    const cols = row.split(',');
+                for (const row of rows) {
+                    if (!row.trim()) continue;
+                    // Handle commas inside quotes for names
+                    const cols = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/^"|"$/g, '').trim()) || row.split(',');
+                    
                     if (cols.length >= 3) {
-                         const fullName = cols[0]?.trim().replace(/^"|"$/g, '');
-                         const mobile = cols[1]?.trim().replace(/^"|"$/g, '');
-                         const emiratesId = cols[2]?.trim().replace(/^"|"$/g, '');
+                         const fullName = cols[0];
+                         const mobile = cols[1];
+                         const emiratesId = cols[2];
+                         // Optional 4th column for Mandalam
+                         const csvMandalam = cols[3] as Mandalam;
                          
+                         // Use selected batch Mandalam or CSV value or fallback
+                         const assignedMandalam = batchMandalam ? (batchMandalam as Mandalam) : (Object.values(Mandalam).includes(csvMandalam) ? csvMandalam : Mandalam.BALUSHERI);
+
                          if (fullName && mobile && emiratesId) {
                              const membershipNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
                              currentSeq++; 
@@ -154,7 +171,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                                  mobile,
                                  whatsapp: mobile,
                                  emiratesId,
-                                 mandalam: Mandalam.BALUSHERI, 
+                                 mandalam: assignedMandalam, 
                                  emirate: Emirate.DUBAI,
                                  status: UserStatus.APPROVED,
                                  paymentStatus: PaymentStatus.UNPAID,
@@ -168,14 +185,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                              });
                          }
                     }
-                });
+                }
 
-                const added = StorageService.addUsers(newUsers);
+                const added = await StorageService.addUsers(newUsers);
                 alert(`Successfully imported ${added.length} users.`);
-                window.location.reload();
+                window.location.reload(); // Force reload to fetch fresh from Firebase
             } catch (error) {
                 console.error(error);
-                alert("Error parsing CSV.");
+                alert("Error parsing CSV. Check console for details.");
             } finally {
                 setIsImporting(false);
                 setImportFile(null);
@@ -185,12 +202,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
       reader.readAsText(importFile);
   };
 
-  const handleCreateNewYear = () => {
+  const handleCreateNewYear = async () => {
       const maxYear = years.reduce((max, y) => Math.max(max, y.year), 0);
       const newYearVal = maxYear + 1;
-      if (window.confirm(`Initialize Year ${newYearVal}?`)) {
+      if (window.confirm(`Initialize Year ${newYearVal}? This will archive ${maxYear}.`)) {
           try {
-              const updatedYears = StorageService.createNewYear(newYearVal);
+              await StorageService.createNewYear(newYearVal);
+              const updatedYears = await StorageService.getYears();
               setYears(updatedYears);
           } catch(e: any) { alert(e.message); }
       }
@@ -208,6 +226,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
           setEditForm({});
       }
   };
+
+  // Benefit Search Filtering
+  const filteredUsersForBenefit = visibleUsers.filter(u => 
+      u.fullName.toLowerCase().includes(benefitUserSearch.toLowerCase()) || 
+      u.membershipNo.toLowerCase().includes(benefitUserSearch.toLowerCase())
+  ).slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -456,7 +480,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                              </div>
                              <div className="flex gap-2">
                                  <button onClick={() => onUpdateUser(user.id, { paymentStatus: user.paymentStatus === PaymentStatus.PAID ? PaymentStatus.UNPAID : PaymentStatus.PAID })} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50">
-                                     {user.paymentStatus === PaymentStatus.PAID ? 'Mark Unpaid' : 'Update Payment'}
+                                     {user.paymentStatus === PaymentStatus.PAID ? 'Mark Unpaid' : 'Mark Paid'}
                                  </button>
                              </div>
                          </div>
@@ -477,18 +501,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                              <div>
                                  <h4 className="font-bold text-slate-900 flex items-center gap-2">
                                      {user.fullName}
-                                     <span className="px-2 py-0.5 bg-emerald-500 text-white rounded-full text-[10px]">approved</span>
+                                     <span className="px-2 py-0.5 bg-orange-500 text-white rounded-full text-[10px] uppercase">Pending Review</span>
                                  </h4>
                                  <p className="text-xs text-slate-500 font-mono mt-1">{user.email || user.mobile}</p>
-                                 <p className="text-xs text-slate-500 mt-1">Submitted: Invalid Date</p>
+                                 <p className="text-xs text-slate-500 mt-1">Reg No: {user.membershipNo}</p>
                              </div>
                              <div className="flex gap-2">
-                                 <button onClick={() => onUpdateUser(user.id, { paymentStatus: PaymentStatus.UNPAID })} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold">Reset Submission</button>
+                                 <button onClick={() => onUpdateUser(user.id, { paymentStatus: PaymentStatus.UNPAID })} className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50">Reject</button>
+                                 <button onClick={() => onUpdateUser(user.id, { paymentStatus: PaymentStatus.PAID })} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-sm">Approve</button>
                              </div>
                          </div>
                      ))}
                      {visibleUsers.filter(u => u.paymentStatus === PaymentStatus.PENDING).length === 0 && (
-                         <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">No pending approvals.</div>
+                         <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">No pending payment approvals.</div>
                      )}
                  </div>
              </div>
@@ -500,8 +525,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                     <UserPlus className="w-8 h-8" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Bulk User Import</h3>
-                <p className="text-slate-500 mb-8">Upload a CSV file (Name, Mobile, EmiratesID) to create accounts instantly.</p>
+                <p className="text-slate-500 mb-6">Upload a CSV file (Name, Mobile, EmiratesID) to create accounts instantly.</p>
                 
+                <div className="mb-6 text-left">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Assign Batch Mandalam</label>
+                    <select 
+                        className="w-full p-3 border border-slate-200 rounded-xl outline-none"
+                        value={batchMandalam}
+                        onChange={(e) => setBatchMandalam(e.target.value)}
+                    >
+                        <option value="">Use CSV Data or Default (Balusheri)</option>
+                        {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                </div>
+
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 mb-6 hover:border-primary transition-colors relative">
                     <input type="file" accept=".csv" onChange={(e) => setImportFile(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -593,21 +630,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                      </select>
                      <button onClick={handleSendNotification} className="w-full py-3 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark">Send</button>
                  </div>
-                 <div className="lg:col-span-2">
-                     <h4 className="font-bold text-slate-800 mb-4">History</h4>
-                     <div className="space-y-3">
-                         {StorageService.getNotifications().filter(n => n.type === 'BROADCAST').map(n => (
-                             <div key={n.id} className="p-4 border border-slate-100 rounded-xl">
-                                 <div className="flex justify-between mb-1">
-                                     <span className="font-bold text-slate-900">{n.title}</span>
-                                     <span className="text-xs text-slate-500">{n.date}</span>
-                                 </div>
-                                 <p className="text-sm text-slate-600">{n.message}</p>
-                                 <p className="text-xs text-primary mt-2 font-medium">Target: {n.targetAudience}</p>
-                             </div>
-                         ))}
-                     </div>
-                 </div>
+                 {/* Notif History would fetch from async storage, simplistic view here for now */}
              </div>
         )}
         
@@ -641,16 +664,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
 
       {/* --- MODALS --- */}
 
-      {/* Benefit Modal */}
+      {/* Benefit Modal with Search */}
       {isBenefitModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-8 space-y-6">
                   <h3 className="font-bold text-xl text-slate-900">Add Benefit</h3>
                   <div className="space-y-4">
-                      <select className="w-full p-3 border border-slate-200 rounded-xl outline-none" value={benefitForm.userId} onChange={(e) => setBenefitForm({...benefitForm, userId: e.target.value})}>
-                          <option value="">Select Member</option>
-                          {visibleUsers.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
-                      </select>
+                      <div className="relative">
+                          <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Search Member</label>
+                          <input 
+                            type="text" 
+                            className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:border-primary"
+                            placeholder="Type name or reg no..."
+                            value={benefitUserSearch}
+                            onChange={(e) => setBenefitUserSearch(e.target.value)}
+                          />
+                          {benefitUserSearch && (
+                              <div className="absolute top-full left-0 right-0 bg-white border border-slate-100 shadow-lg rounded-xl mt-1 max-h-40 overflow-y-auto z-10">
+                                  {filteredUsersForBenefit.map(u => (
+                                      <div 
+                                        key={u.id} 
+                                        className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0"
+                                        onClick={() => {
+                                            setBenefitForm({...benefitForm, userId: u.id});
+                                            setBenefitUserSearch(u.fullName);
+                                        }}
+                                      >
+                                          <p className="font-bold text-sm text-slate-900">{u.fullName}</p>
+                                          <p className="text-xs text-slate-500">{u.membershipNo}</p>
+                                      </div>
+                                  ))}
+                              </div>
+                          )}
+                      </div>
+                      
+                      {benefitForm.userId && (
+                          <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-700 flex items-center gap-2">
+                              <Check className="w-4 h-4" /> Selected: {users.find(u => u.id === benefitForm.userId)?.fullName}
+                          </div>
+                      )}
+
                       <div className="flex gap-4">
                           <select className="w-1/2 p-3 border border-slate-200 rounded-xl outline-none" value={benefitForm.type} onChange={(e) => setBenefitForm({...benefitForm, type: e.target.value as BenefitType})}>
                               {Object.values(BenefitType).map(t => <option key={t}>{t}</option>)}
@@ -661,7 +714,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                   </div>
                   <div className="flex gap-3">
                       <button onClick={() => setIsBenefitModalOpen(false)} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
-                      <button onClick={handleAddBenefitSubmit} className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark shadow-lg shadow-primary/20">Save</button>
+                      <button onClick={handleAddBenefitSubmit} disabled={!benefitForm.userId} className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark shadow-lg shadow-primary/20 disabled:opacity-50">Save</button>
                   </div>
               </div>
           </div>

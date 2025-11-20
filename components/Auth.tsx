@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { Mandalam, Emirate, Role, UserStatus, PaymentStatus, User } from '../types';
@@ -6,9 +7,10 @@ import { StorageService } from '../services/storageService';
 interface AuthProps {
   onLogin: (identifier: string, password: string) => void;
   onRegister: (user: User) => void;
+  isLoading?: boolean;
 }
 
-const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   
@@ -40,11 +42,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Trim inputs to avoid whitespace issues, especially from copy-paste
     onLogin(loginIdentifier.trim(), loginPassword.trim());
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
       alert("Passwords do not match!");
@@ -52,7 +53,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
     }
 
     const currentYear = new Date().getFullYear();
-    const newMembershipNo = StorageService.generateNextMembershipNo(currentYear);
+    const newMembershipNo = await StorageService.generateNextMembershipNo(currentYear);
 
     const newUser: User = {
       id: `user-${Date.now()}`,
@@ -94,13 +95,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target;
     setFormData(prev => ({ ...prev, [name]: checked }));
-  };
-
-  const handleResetApp = () => {
-      if (window.confirm("WARNING: This will delete ALL data (users, benefits, notifications) and reset the app to default. Are you sure?")) {
-          localStorage.clear();
-          window.location.reload();
-      }
   };
 
   if (isRegistering) {
@@ -175,8 +169,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
                           </div>
                       </div>
 
-                      <button type="submit" className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm">
-                          Create Account
+                      <button type="submit" disabled={isLoading} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
+                          {isLoading ? 'Creating Account...' : 'Create Account'}
                       </button>
 
                       <p className="text-center text-sm text-slate-600">
@@ -238,18 +232,15 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister }) => {
 
           <button 
             type="submit" 
-            className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm uppercase tracking-wide"
+            disabled={isLoading}
+            className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm uppercase tracking-wide disabled:opacity-50"
           >
-            Sign In
+            {isLoading ? 'Signing In...' : 'Sign In'}
           </button>
         </form>
 
         <div className="text-center text-sm text-slate-600 border-t border-slate-100 pt-4 flex flex-col gap-4">
           <p>New member? <button onClick={() => setIsRegistering(true)} className="text-primary font-bold hover:underline">Register Now</button></p>
-          
-          <button onClick={handleResetApp} className="flex items-center justify-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors">
-              <RotateCcw className="w-3 h-3" /> Reset App Data (Test)
-          </button>
         </div>
       </div>
     </div>

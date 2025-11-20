@@ -1,16 +1,25 @@
 
-import { User, BenefitRecord, Role, UserStatus, PaymentStatus, Mandalam, Emirate, Notification, YearConfig } from '../types';
+import { db } from './firebase';
+import { 
+    collection, 
+    getDocs, 
+    doc, 
+    setDoc, 
+    updateDoc, 
+    deleteDoc, 
+    query, 
+    where,
+    orderBy
+} from 'firebase/firestore';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus } from '../types';
 
-const USERS_KEY = 'uae_connect_users';
-const BENEFITS_KEY = 'uae_connect_benefits';
-const NOTIFICATIONS_KEY = 'uae_connect_notifications';
-const YEARS_KEY = 'uae_connect_years';
+// Collection References
+const USERS_COLLECTION = 'users';
+const BENEFITS_COLLECTION = 'benefits';
+const NOTIFICATIONS_COLLECTION = 'notifications';
+const YEARS_COLLECTION = 'years';
 
-// Firebase Preparation Note:
-// When moving to Firebase, replace these localStorage calls with Firestore calls.
-// Example: StorageService.getUsers() -> await db.collection('users').get()
-
-// Seed Admin User
+// Master Admin Fallback (In case DB is empty)
 const ADMIN_USER: User = {
   id: 'admin-master',
   fullName: 'System Administrator',
@@ -31,24 +40,30 @@ const ADMIN_USER: User = {
 };
 
 export const StorageService = {
-  getUsers: (): User[] => {
-    const stored = localStorage.getItem(USERS_KEY);
-    if (!stored) {
-      const initialUsers = [ADMIN_USER];
-      localStorage.setItem(USERS_KEY, JSON.stringify(initialUsers));
-      return initialUsers;
+  
+  // --- USERS ---
+  getUsers: async (): Promise<User[]> => {
+    try {
+        const snapshot = await getDocs(collection(db, USERS_COLLECTION));
+        const users = snapshot.docs.map(doc => doc.data() as User);
+        
+        // Check if admin exists, if not locally inject/create (safety net)
+        if (!users.find(u => u.role === Role.MASTER_ADMIN)) {
+            return [ADMIN_USER, ...users];
+        }
+        return users;
+    } catch (error) {
+        console.error("Error fetching users:", error);
+        return [ADMIN_USER]; // Fallback to allow login if DB fails
     }
-    return JSON.parse(stored);
   },
 
-  saveUsers: (users: User[]) => {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  },
-
-  // Helper for login to handle CSV whitespace issues
-  findUserForLogin: (identifier: string): User | undefined => {
-     const users = StorageService.getUsers();
+  findUserForLogin: async (identifier: string): Promise<User | undefined> => {
      const cleanId = identifier.trim().toLowerCase();
+     // This is a bit inefficient for large DBs, but flexible for "Mobile OR Email" logic.
+     // Ideally, we would run two queries or store a normalized 'loginId'.
+     // For this scale, fetching all (cached by SDK) is acceptable or client-side filtering after load.
+     const users = await StorageService.getUsers();
      
      return users.find(u => 
         (u.email && u.email.toLowerCase() === cleanId) || 
@@ -56,168 +71,118 @@ export const StorageService = {
      );
   },
 
-  generateNextMembershipNo: (year: number): string => {
-    const users = StorageService.getUsers();
-    const yearPrefix = year.toString();
-    
-    // Filter users for the current year
-    const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
-    
-    if (relevantUsers.length === 0) {
-        return `${yearPrefix}0001`;
-    }
+  addUser: async (user: User): Promise<User> => {
+    // We perform checks against current data state
+    // Note: In a real backend, these unique constraints should be Firestore Rules or Cloud Functions
+    const users = await StorageService.getUsers();
 
-    let maxSeq = 0;
-    relevantUsers.forEach(u => {
-        const seqStr = u.membershipNo.substring(yearPrefix.length);
-        const seq = parseInt(seqStr, 10);
-        if (!isNaN(seq) && seq > maxSeq) {
-            maxSeq = seq;
-        }
-    });
-
-    const nextSequence = maxSeq + 1;
-    return `${yearPrefix}${nextSequence.toString().padStart(4, '0')}`;
-  },
-  
-  // Optimized helper to get integer sequence start for bulk operations
-  getNextSequence: (year: number): number => {
-    const users = StorageService.getUsers();
-    const yearPrefix = year.toString();
-    const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
-    
-    if (relevantUsers.length === 0) return 1;
-
-    let maxSeq = 0;
-    relevantUsers.forEach(u => {
-        const seqStr = u.membershipNo.substring(yearPrefix.length);
-        const seq = parseInt(seqStr, 10);
-        if (!isNaN(seq) && seq > maxSeq) {
-            maxSeq = seq;
-        }
-    });
-    return maxSeq + 1;
-  },
-
-  addUser: (user: User) => {
-    const users = StorageService.getUsers();
-    
-    // Strict check only for Email if provided
     if (user.email && users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase())) {
       throw new Error(`User with email ${user.email} already exists.`);
     }
     
-    // Strict check for Emirates ID
     if (users.find(u => u.emiratesId === user.emiratesId)) {
       throw new Error(`User with Emirates ID ${user.emiratesId} already exists.`);
     }
-    
-    users.push(user);
-    StorageService.saveUsers(users);
-    return users;
+
+    await setDoc(doc(db, USERS_COLLECTION, user.id), user);
+    return user;
   },
 
-  // Bulk insert for CSV imports
-  addUsers: (newUsers: User[]) => {
-    const users = StorageService.getUsers();
-    const added: User[] = [];
-    
-    // Create Sets for fast lookup to avoid O(N^2) complexity
-    const existingEmails = new Set(users.map(u => u.email?.toLowerCase()).filter(Boolean));
-    const existingEIDs = new Set(users.map(u => u.emiratesId));
-
-    newUsers.forEach(user => {
-        // Skip if email exists (if email is present)
-        if (user.email && existingEmails.has(user.email.toLowerCase())) {
-            console.warn(`Skipping duplicate email: ${user.email}`);
-            return;
-        }
-        // Skip if Emirates ID exists
-        if (existingEIDs.has(user.emiratesId)) {
-             console.warn(`Skipping duplicate EID: ${user.emiratesId}`);
-             return;
-        }
-        
-        users.push(user);
-        added.push(user);
-        
-        // Add to sets to prevent duplicates within the import batch itself
-        if(user.email) existingEmails.add(user.email.toLowerCase());
-        existingEIDs.add(user.emiratesId);
-    });
-
-    StorageService.saveUsers(users);
-    return added;
+  // Bulk Insert
+  addUsers: async (newUsers: User[]): Promise<User[]> => {
+    const batchPromises = newUsers.map(user => 
+        setDoc(doc(db, USERS_COLLECTION, user.id), user)
+    );
+    await Promise.all(batchPromises);
+    return newUsers;
   },
 
-  updateUser: (userId: string, updates: Partial<User>) => {
-    const users = StorageService.getUsers();
-    const index = users.findIndex(u => u.id === userId);
-    if (index !== -1) {
-      users[index] = { ...users[index], ...updates };
-      StorageService.saveUsers(users);
-    }
-    return users;
+  updateUser: async (userId: string, updates: Partial<User>): Promise<void> => {
+    const userRef = doc(db, USERS_COLLECTION, userId);
+    await updateDoc(userRef, updates);
   },
 
-  getBenefits: (): BenefitRecord[] => {
-    const stored = localStorage.getItem(BENEFITS_KEY);
-    return stored ? JSON.parse(stored) : [];
+  // --- UTILS ---
+  getNextSequence: async (year: number): Promise<number> => {
+      const users = await StorageService.getUsers();
+      const yearPrefix = year.toString();
+      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
+      
+      if (relevantUsers.length === 0) return 1;
+
+      let maxSeq = 0;
+      relevantUsers.forEach(u => {
+          const seqStr = u.membershipNo.substring(yearPrefix.length);
+          const seq = parseInt(seqStr, 10);
+          if (!isNaN(seq) && seq > maxSeq) {
+              maxSeq = seq;
+          }
+      });
+      return maxSeq + 1;
   },
 
-  addBenefit: (benefit: BenefitRecord) => {
-    const benefits = StorageService.getBenefits();
-    benefits.push(benefit);
-    localStorage.setItem(BENEFITS_KEY, JSON.stringify(benefits));
-    return benefits;
+  generateNextMembershipNo: async (year: number): Promise<string> => {
+      const nextSeq = await StorageService.getNextSequence(year);
+      return `${year}${nextSeq.toString().padStart(4, '0')}`;
   },
 
-  deleteBenefit: (id: string) => {
-    const benefits = StorageService.getBenefits();
-    const filtered = benefits.filter(b => b.id !== id);
-    localStorage.setItem(BENEFITS_KEY, JSON.stringify(filtered));
-    return filtered;
+  // --- BENEFITS ---
+  getBenefits: async (): Promise<BenefitRecord[]> => {
+      const snapshot = await getDocs(collection(db, BENEFITS_COLLECTION));
+      return snapshot.docs.map(doc => doc.data() as BenefitRecord);
   },
 
-  getNotifications: (): Notification[] => {
-    const stored = localStorage.getItem(NOTIFICATIONS_KEY);
-    return stored ? JSON.parse(stored) : [];
+  addBenefit: async (benefit: BenefitRecord): Promise<void> => {
+      await setDoc(doc(db, BENEFITS_COLLECTION, benefit.id), benefit);
   },
 
-  addNotification: (notification: Notification) => {
-    const notifications = StorageService.getNotifications();
-    notifications.unshift(notification);
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
-    return notifications;
-  },
-  
-  deleteNotification: (id: string) => {
-     const notifications = StorageService.getNotifications();
-     const filtered = notifications.filter(n => n.id !== id);
-     localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(filtered));
-     return filtered;
+  deleteBenefit: async (id: string): Promise<void> => {
+      await deleteDoc(doc(db, BENEFITS_COLLECTION, id));
   },
 
-  // Year Management
-  getYears: (): YearConfig[] => {
-      const stored = localStorage.getItem(YEARS_KEY);
-      if (!stored) {
+  // --- NOTIFICATIONS ---
+  getNotifications: async (): Promise<Notification[]> => {
+      // Ideally order by date desc
+      const q = query(collection(db, NOTIFICATIONS_COLLECTION));
+      const snapshot = await getDocs(q);
+      const notifs = snapshot.docs.map(doc => doc.data() as Notification);
+      // Client side sort for simplicity
+      return notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  },
+
+  addNotification: async (notification: Notification): Promise<void> => {
+      await setDoc(doc(db, NOTIFICATIONS_COLLECTION, notification.id), notification);
+  },
+
+  deleteNotification: async (id: string): Promise<void> => {
+      await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, id));
+  },
+
+  // --- YEARS ---
+  getYears: async (): Promise<YearConfig[]> => {
+      const snapshot = await getDocs(collection(db, YEARS_COLLECTION));
+      if (snapshot.empty) {
           return [{ year: 2025, status: 'ACTIVE', count: 0 }];
       }
-      return JSON.parse(stored);
+      const years = snapshot.docs.map(doc => doc.data() as YearConfig);
+      return years.sort((a, b) => b.year - a.year);
   },
 
-  createNewYear: (year: number) => {
-      const years = StorageService.getYears();
+  createNewYear: async (year: number): Promise<void> => {
+      const years = await StorageService.getYears();
       if (years.find(y => y.year === year)) {
           throw new Error("Year already exists");
       }
-      
-      // Archive previous active years
-      const updatedYears: YearConfig[] = years.map(y => ({ ...y, status: 'ARCHIVED' }));
-      updatedYears.unshift({ year, status: 'ACTIVE', count: 0 });
-      
-      localStorage.setItem(YEARS_KEY, JSON.stringify(updatedYears));
-      return updatedYears;
+
+      // 1. Archive all existing years
+      const archivePromises = years.map(y => 
+          updateDoc(doc(db, YEARS_COLLECTION, y.year.toString()), { status: 'ARCHIVED' })
+      );
+      await Promise.all(archivePromises);
+
+      // 2. Create new year
+      const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
+      // Using year as ID for easy lookup
+      await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
   }
 };

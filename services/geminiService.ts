@@ -1,8 +1,10 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // NOTE: In a real production app, this key should be proxied through a backend or carefully managed.
 // The prompt instructions dictate using process.env.API_KEY directly.
-const API_KEY = process.env.API_KEY || '';
+// We add a safety check for 'process' to avoid crashing in pure browser environments.
+const API_KEY = (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
 
 export const generateCommunicationDraft = async (
   topic: string,

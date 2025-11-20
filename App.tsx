@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
@@ -10,6 +11,7 @@ import { StorageService } from './services/storageService';
 import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord } from './types';
 
 const App: React.FC = () => {
+  const [isLoading, setIsLoading] = useState(true);
   const [currentView, setCurrentView] = useState<ViewState>('AUTH');
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -27,12 +29,43 @@ const App: React.FC = () => {
       relation: 'Father'
   });
 
+  // Fetch Data Function
+  const fetchData = async () => {
+      setIsLoading(true);
+      try {
+          const [loadedUsers, loadedBenefits] = await Promise.all([
+              StorageService.getUsers(),
+              StorageService.getBenefits()
+          ]);
+          setUsers(loadedUsers);
+          setBenefits(loadedBenefits);
+      } catch (error) {
+          console.error("Failed to load data", error);
+          alert("Failed to connect to database. Please check your internet.");
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
   useEffect(() => {
-    const loadedUsers = StorageService.getUsers();
-    const loadedBenefits = StorageService.getBenefits();
-    setUsers(loadedUsers);
-    setBenefits(loadedBenefits);
+    fetchData();
   }, []);
+
+  // Live Reload wrapper for updates
+  const refreshData = async () => {
+      const [loadedUsers, loadedBenefits] = await Promise.all([
+          StorageService.getUsers(),
+          StorageService.getBenefits()
+      ]);
+      setUsers(loadedUsers);
+      setBenefits(loadedBenefits);
+      
+      // Update current user if logged in
+      if (currentUser) {
+          const updatedCurrent = loadedUsers.find(u => u.id === currentUser.id);
+          if (updatedCurrent) setCurrentUser(updatedCurrent);
+      }
+  };
 
   const stats: DashboardStats = {
       total: users.length - 1, 
@@ -46,84 +79,131 @@ const App: React.FC = () => {
       collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length * 60
   };
 
-  const handleLogin = (identifier: string, passwordInput: string) => {
+  const handleLogin = async (identifier: string, passwordInput: string) => {
+      setIsLoading(true);
+      
+      // Hardcoded fallback for Admin if DB is empty or slow
       if (identifier === 'admin' && passwordInput === 'admin123') {
         const admin = users.find(u => u.email === 'admin');
         if (admin) {
           setCurrentUser(admin);
           setViewMode('ADMIN');
           setCurrentView('DASHBOARD');
+          setIsLoading(false);
           return;
         }
       }
 
-      const user = StorageService.findUserForLogin(identifier);
-      
-      if (user && user.password === passwordInput) {
-          setCurrentUser(user);
-          // Master Admin always sees Admin View, others see User View by default
-          setViewMode((user.role === Role.MASTER_ADMIN || user.role === Role.MANDALAM_ADMIN || user.role === Role.CUSTOM_ADMIN) ? 'ADMIN' : 'USER');
-          
-          // If master admin, force ADMIN mode even if logic above allowed it
-          if (user.role === Role.MASTER_ADMIN) {
-              setViewMode('ADMIN');
-          } else if (user.role === Role.USER) {
-              setViewMode('USER');
-          }
+      try {
+        // Always fetch fresh data on login attempt to ensure synced state
+        const freshUsers = await StorageService.getUsers();
+        setUsers(freshUsers);
+        
+        const cleanId = identifier.trim().toLowerCase();
+        const user = freshUsers.find(u => 
+            (u.email && u.email.toLowerCase() === cleanId) || 
+            (u.mobile && u.mobile.trim() === cleanId)
+        );
+        
+        if (user && user.password === passwordInput) {
+            setCurrentUser(user);
+            
+            // Logic for Roles
+            if (user.role === Role.MASTER_ADMIN) {
+                setViewMode('ADMIN');
+            } else if (user.role === Role.USER) {
+                setViewMode('USER');
+            } else {
+                 // Mandalam/Custom Admins default to Admin view but can switch
+                 setViewMode('ADMIN');
+            }
 
-          if (user.isImported) {
-              setIsProfileCompletionOpen(true);
-          }
-          setCurrentView('DASHBOARD');
-      } else {
-          alert("Invalid credentials.");
+            if (user.isImported) {
+                setIsProfileCompletionOpen(true);
+            }
+            setCurrentView('DASHBOARD');
+        } else {
+            alert("Invalid credentials.");
+        }
+      } catch (e) {
+          console.error(e);
+          alert("Login error.");
+      } finally {
+          setIsLoading(false);
       }
   };
 
-  const handleRegister = (newUser: User) => {
+  const handleRegister = async (newUser: User) => {
+    setIsLoading(true);
     try {
-      const updatedUsers = StorageService.addUser(newUser);
-      setUsers(updatedUsers);
+      await StorageService.addUser(newUser);
+      await refreshData();
+      
       setCurrentUser(newUser);
       setViewMode('USER');
       setCurrentView('DASHBOARD');
       alert("Registration successful!");
     } catch (e: any) {
       alert(e.message);
+    } finally {
+        setIsLoading(false);
     }
   };
 
   const handleLogout = () => {
       setCurrentUser(null);
       setCurrentView('AUTH');
+      setViewMode('USER');
   };
 
-  const handleUpdateUser = (userId: string, updates: Partial<User>) => {
-      const updatedUsers = StorageService.updateUser(userId, updates);
-      setUsers(updatedUsers);
-      if (currentUser && currentUser.id === userId) {
-        setCurrentUser({ ...currentUser, ...updates });
+  const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
+      setIsLoading(true);
+      try {
+        await StorageService.updateUser(userId, updates);
+        await refreshData();
+      } catch (error) {
+          console.error("Update failed", error);
+          alert("Failed to update user.");
+      } finally {
+          setIsLoading(false);
       }
   };
 
-  const handleAddBenefit = (benefit: BenefitRecord) => {
-    const updatedBenefits = StorageService.addBenefit(benefit);
-    setBenefits(updatedBenefits);
+  const handleAddBenefit = async (benefit: BenefitRecord) => {
+    setIsLoading(true);
+    try {
+        await StorageService.addBenefit(benefit);
+        await refreshData();
+    } catch (error) {
+        console.error(error);
+        alert("Failed to add benefit");
+    } finally {
+        setIsLoading(false);
+    }
   };
 
-  const handleDeleteBenefit = (id: string) => {
-    const updatedBenefits = StorageService.deleteBenefit(id);
-    setBenefits(updatedBenefits);
+  const handleDeleteBenefit = async (id: string) => {
+    if(!window.confirm("Are you sure you want to delete this record?")) return;
+    setIsLoading(true);
+    try {
+        await StorageService.deleteBenefit(id);
+        await refreshData();
+    } catch (error) {
+        console.error(error);
+        alert("Failed to delete benefit");
+    } finally {
+        setIsLoading(false);
+    }
   };
 
-  const submitProfileCompletion = () => {
+  const submitProfileCompletion = async () => {
       if (!currentUser) return;
       if (!completionForm.email || !completionForm.password) {
           alert("Email and Password are required.");
           return;
       }
 
-      handleUpdateUser(currentUser.id, {
+      await handleUpdateUser(currentUser.id, {
           email: completionForm.email,
           password: completionForm.password,
           addressUAE: completionForm.addressUAE,
@@ -144,18 +224,29 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    if (isLoading && !currentUser) { // Show loading only on initial load or auth
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+                <div className="animate-spin text-primary text-4xl mb-4">
+                   <i className="fa-solid fa-circle-notch"></i>
+                </div>
+                <p className="text-slate-500 font-medium">Connecting to Secure Server...</p>
+            </div>
+        )
+    }
+
     if (!currentUser || currentView === 'AUTH') {
-      return <Auth onLogin={handleLogin} onRegister={handleRegister} />;
+      return <Auth onLogin={handleLogin} onRegister={handleRegister} isLoading={isLoading} />;
     }
 
     if (viewMode === 'USER') {
         switch (currentView) {
-            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} />;
+            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
             case 'CARD': return <MembershipCard user={currentUser} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
             case 'NOTIFICATIONS': return <UserNotifications user={currentUser} />;
-            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} />;
+            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
         }
     } else {
         // Admin View
@@ -168,6 +259,7 @@ const App: React.FC = () => {
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
+                isLoading={isLoading}
               />
             );
             case 'COMMUNICATIONS': return <Communications />;
@@ -179,6 +271,7 @@ const App: React.FC = () => {
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
+                isLoading={isLoading}
               />
             );
         }
@@ -195,6 +288,15 @@ const App: React.FC = () => {
       toggleViewMode={toggleViewMode}
     >
       {renderContent()}
+
+      {/* Loading Overlay for Actions */}
+      {isLoading && currentUser && (
+          <div className="fixed inset-0 z-[200] bg-white/50 backdrop-blur-sm flex items-center justify-center">
+               <div className="animate-spin text-primary text-3xl">
+                   <i className="fa-solid fa-spinner"></i>
+                </div>
+          </div>
+      )}
 
       {isProfileCompletionOpen && currentUser && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

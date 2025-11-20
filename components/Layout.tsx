@@ -42,8 +42,10 @@ const Layout: React.FC<LayoutProps> = ({
     return <div className="min-h-screen bg-slate-50">{children}</div>;
   }
 
-  const handleExportExcel = () => {
-    const users = StorageService.getUsers().filter(u => u.role !== Role.MASTER_ADMIN);
+  // Fix: StorageService.getUsers() returns a Promise, so we must await it before filtering.
+  const handleExportExcel = async () => {
+    const allUsers = await StorageService.getUsers();
+    const users = allUsers.filter(u => u.role !== Role.MASTER_ADMIN);
     if (users.length === 0) {
         alert("No users to export.");
         return;

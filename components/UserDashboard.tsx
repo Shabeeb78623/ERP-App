@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord } from '../types';
 import { HeartHandshake, CheckCircle2, AlertCircle, CreditCard, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
@@ -6,9 +7,10 @@ interface UserDashboardProps {
   user: User;
   benefits: BenefitRecord[];
   onUpdateUser: (userId: string, updates: Partial<User>) => void;
+  isLoading?: boolean;
 }
 
-const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser }) => {
+const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
 
   const handlePaymentSubmit = () => {
@@ -16,8 +18,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
           alert("Please enter remarks.");
           return;
       }
+      // Set status to PENDING upon submission, not PAID
       onUpdateUser(user.id, { paymentStatus: PaymentStatus.PENDING });
-      alert("Payment submitted.");
+      alert("Payment details submitted for verification.");
   };
 
   return (
@@ -80,19 +83,28 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          </div>
                          <button 
                             onClick={handlePaymentSubmit}
-                            className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all"
+                            disabled={isLoading}
+                            className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all disabled:opacity-70"
                          >
-                             Submit Payment Proof
+                             {isLoading ? 'Processing...' : 'Submit Payment Proof'}
                          </button>
                     </div>
                 ) : (
                     <div className="text-center py-8">
-                        <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${user.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
+                         <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
+                             user.paymentStatus === PaymentStatus.PAID 
+                             ? 'bg-emerald-50 text-emerald-600' 
+                             : 'bg-amber-50 text-amber-600'
+                         }`}>
                             {user.paymentStatus === PaymentStatus.PAID ? <CheckCircle2 className="w-8 h-8" /> : <Wallet className="w-8 h-8" />}
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900">{user.paymentStatus === PaymentStatus.PAID ? 'Membership Active' : 'Verification Pending'}</h3>
+                        <h3 className="text-lg font-bold text-slate-900">
+                            {user.paymentStatus === PaymentStatus.PAID ? 'Membership Active' : 'Payment Under Review'}
+                        </h3>
                         <p className="text-slate-500 max-w-xs mx-auto mt-2 text-sm">
-                            {user.paymentStatus === PaymentStatus.PAID ? 'Your dues are cleared for this year.' : 'Admin is reviewing your payment submission.'}
+                            {user.paymentStatus === PaymentStatus.PAID 
+                                ? 'Your dues are cleared for this year.' 
+                                : 'Admin is reviewing your payment submission. Status will be updated shortly.'}
                         </p>
                     </div>
                 )}
