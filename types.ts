@@ -47,6 +47,27 @@ export enum Emirate {
   FUJAIRAH = 'FUJAIRAH',
 }
 
+export enum FieldType {
+  TEXT = 'TEXT',
+  NUMBER = 'NUMBER',
+  DROPDOWN = 'DROPDOWN',
+  DEPENDENT_DROPDOWN = 'DEPENDENT_DROPDOWN',
+  TEXTAREA = 'TEXTAREA'
+}
+
+export interface RegistrationQuestion {
+  id: string;
+  label: string;
+  type: FieldType;
+  options?: string[]; // For standard dropdowns
+  parentQuestionId?: string; // For dependent dropdowns
+  // Map parent value -> child options. e.g. { "Abu Dhabi": ["Mandalam1", "Mandalam2"] }
+  dependentOptions?: Record<string, string[]>; 
+  order: number;
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface User {
   id: string;
   fullName: string;
@@ -54,8 +75,8 @@ export interface User {
   mobile: string;
   whatsapp: string;
   emiratesId: string;
-  mandalam: Mandalam;
-  emirate: Emirate;
+  mandalam: Mandalam; // Keep for legacy/core logic
+  emirate: Emirate;   // Keep for legacy/core logic
   status: UserStatus;
   paymentStatus: PaymentStatus;
   role: Role;
@@ -80,6 +101,9 @@ export interface User {
   assignedMandalams?: Mandalam[];
   password?: string; 
   isImported?: boolean; // Flag to trigger profile completion
+
+  // Dynamic Data
+  customData?: Record<string, any>;
 }
 
 export interface BenefitRecord {

@@ -1,7 +1,8 @@
 
-import React, { useState } from 'react';
-import { User, UserStatus, PaymentStatus, BenefitRecord } from '../types';
+import React, { useState, useEffect } from 'react';
+import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
 import { HeartHandshake, CheckCircle2, AlertCircle, CreditCard, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
   user: User;
@@ -12,6 +13,11 @@ interface UserDashboardProps {
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
+  const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
+
+  useEffect(() => {
+      StorageService.getQuestions().then(qs => setQuestions(qs));
+  }, []);
 
   const handlePaymentSubmit = () => {
       if (!paymentRemarks) {
@@ -22,6 +28,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
       onUpdateUser(user.id, { paymentStatus: PaymentStatus.PENDING });
       alert("Payment details submitted for verification.");
   };
+
+  // Function to map custom data ID to Label
+  const getLabel = (id: string) => {
+      const q = questions.find(quest => quest.id === id);
+      return q ? q.label : id;
+  }
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -148,6 +160,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          <p className="text-xs text-slate-400 uppercase font-bold">Emirates ID</p>
                          <p className="text-sm font-medium text-slate-900">{user.emiratesId}</p>
                      </div>
+
+                     {/* Dynamic Custom Data Display */}
+                     {user.customData && Object.entries(user.customData).map(([key, val]) => {
+                         if(!val) return null;
+                         const label = getLabel(key);
+                         // Don't repeat standard fields if handled above
+                         if(['email','mobile','emirates id'].includes(label.toLowerCase())) return null;
+
+                         return (
+                             <div key={key} className="p-3 bg-slate-50 rounded-lg">
+                                 <p className="text-xs text-slate-400 uppercase font-bold">{label}</p>
+                                 <p className="text-sm font-medium text-slate-900">{val}</p>
+                             </div>
+                         )
+                     })}
                  </div>
              </div>
         </div>

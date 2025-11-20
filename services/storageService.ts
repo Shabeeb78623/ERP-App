@@ -11,13 +11,14 @@ import {
     onSnapshot,
     writeBatch
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus } from '../types';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion } from '../types';
 
 // Collection References
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const YEARS_COLLECTION = 'years';
+const QUESTIONS_COLLECTION = 'questions';
 
 // Master Admin Fallback
 const ADMIN_USER: User = {
@@ -156,6 +157,26 @@ export const StorageService = {
       return `${year}${nextSeq.toString().padStart(4, '0')}`;
   },
 
+  // --- QUESTIONS ---
+  getQuestions: async (): Promise<RegistrationQuestion[]> => {
+      try {
+          const snapshot = await getDocs(collection(db, QUESTIONS_COLLECTION));
+          const qs = snapshot.docs.map(doc => doc.data() as RegistrationQuestion);
+          return qs.sort((a, b) => a.order - b.order);
+      } catch (e) {
+          console.error("Error getting questions", e);
+          return [];
+      }
+  },
+
+  saveQuestion: async (question: RegistrationQuestion): Promise<void> => {
+      await setDoc(doc(db, QUESTIONS_COLLECTION, question.id), question);
+  },
+
+  deleteQuestion: async (id: string): Promise<void> => {
+      await deleteDoc(doc(db, QUESTIONS_COLLECTION, id));
+  },
+
   // --- BENEFITS ---
   getBenefits: async (): Promise<BenefitRecord[]> => {
       const snapshot = await getDocs(collection(db, BENEFITS_COLLECTION));
@@ -211,7 +232,7 @@ export const StorageService = {
 
   // --- DANGER ZONE: RESET ---
   resetDatabase: async (): Promise<void> => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION];
       
       for (const colName of collections) {
           const q = query(collection(db, colName));

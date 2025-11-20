@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, BenefitRecord, Notification } from '../types';
-import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck } from 'lucide-react';
+import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck, Camera } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface BaseProps {
     user: User;
     isLoading?: boolean;
-    notifications?: Notification[]; // Added prop
+    notifications?: Notification[]; 
 }
 
 // --- User Benefits View ---
@@ -66,6 +66,7 @@ interface AccountSettingsProps extends BaseProps {
 export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdateUser }) => {
     const [newPassword, setNewPassword] = useState('');
     const [confirmNewPassword, setConfirmNewPassword] = useState('');
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
     const handleChangePassword = () => {
         if (newPassword !== confirmNewPassword) return alert("Passwords do not match");
@@ -74,6 +75,27 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
         alert("Password update initiated.");
         setNewPassword('');
         setConfirmNewPassword('');
+    };
+
+    const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            
+            // Size Limit (e.g., 1MB for Firestore strings)
+            if (file.size > 1024 * 1024) {
+                alert("File is too large. Please select an image under 1MB.");
+                return;
+            }
+
+            setUploadingPhoto(true);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64String = reader.result as string;
+                onUpdateUser(user.id, { photoUrl: base64String });
+                setUploadingPhoto(false);
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     return (
@@ -87,6 +109,31 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
                 <div className="space-y-8">
                     <div>
                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Profile Information</h3>
+                        
+                        {/* Photo Upload Section */}
+                        <div className="flex items-center gap-6 mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div className="relative group cursor-pointer">
+                                <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-md">
+                                    {user.photoUrl ? (
+                                        <img src={user.photoUrl} alt="Profile" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full bg-slate-200 flex items-center justify-center text-slate-400">
+                                            <UserCircle className="w-12 h-12" />
+                                        </div>
+                                    )}
+                                </div>
+                                <label htmlFor="photo-upload" className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Camera className="w-8 h-8 text-white" />
+                                    <input id="photo-upload" type="file" className="hidden" accept="image/*" onChange={handlePhotoChange} disabled={uploadingPhoto} />
+                                </label>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-900">Profile Photo</h4>
+                                <p className="text-xs text-slate-500 mt-1">Click image to upload. Max 1MB.</p>
+                                {uploadingPhoto && <p className="text-xs text-primary font-bold mt-2">Uploading...</p>}
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                                 <p className="text-xs text-slate-400 font-bold uppercase mb-1">Full Name</p>

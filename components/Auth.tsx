@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, RotateCcw } from 'lucide-react';
-import { Mandalam, Emirate, Role, UserStatus, PaymentStatus, User } from '../types';
+import { Mandalam, Emirate, Role, UserStatus, PaymentStatus, User, RegistrationQuestion, FieldType } from '../types';
 import { StorageService } from '../services/storageService';
 
 interface AuthProps {
@@ -18,26 +18,24 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
+  // Dynamic Questions State
+  const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
+  const [customData, setCustomData] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+      if(isRegistering) {
+          StorageService.getQuestions().then(qs => setQuestions(qs));
+      }
+  }, [isRegistering]);
+
   // Registration State
   const [formData, setFormData] = useState({
-    fullName: '',
     email: '',
-    mobile: '',
-    whatsapp: '',
-    emiratesId: '',
-    mandalam: Mandalam.BALUSHERI,
-    emirate: Emirate.AJMAN,
-    addressUAE: '',
-    addressIndia: '',
-    nominee: '',
-    relation: 'Father',
-    isKMCCMember: false,
-    kmccNo: '',
-    isPratheekshaMember: false,
-    pratheekshaNo: '',
-    recommendedBy: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    // These are kept for core logic, but can be hidden if questions cover them
+    // For this implementation, we assume questions cover details like Name, Mobile, etc.
+    // But we need to map some dynamic fields back to core user props for the system to work.
   });
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -52,27 +50,42 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       return;
     }
 
+    // --- Mapping Logic ---
+    // In a dynamic system, we need to know which question corresponds to 'fullName', 'mobile', etc.
+    // For simplicity in this demo, we will assume the Admin creates questions with specific labels 
+    // OR we just try to fuzzy match common labels to core fields.
+    // The robust way is to have 'system' flags on questions, but we will stick to label matching or fallback.
+    
+    const findAnswer = (labelPart: string) => {
+        const q = questions.find(q => q.label.toLowerCase().includes(labelPart));
+        return q ? customData[q.id] : '';
+    }
+
+    // Map dynamic answers to core User fields
+    // If a core field isn't found in questions, we fallback to empty string (system might require updates)
+    const fullName = findAnswer('name') || 'Unknown';
+    const mobile = findAnswer('mobile') || '0000000000';
+    const emiratesId = findAnswer('emirates id') || '000000000000000';
+    const email = findAnswer('email') || formData.email; // Prefer question answer, else form email
+    const mandalam = (findAnswer('mandalam') as Mandalam) || Mandalam.BALUSHERI;
+    const emirate = (findAnswer('emirate') as Emirate) || Emirate.DUBAI;
+
     const currentYear = new Date().getFullYear();
     const newMembershipNo = await StorageService.generateNextMembershipNo(currentYear);
 
     const newUser: User = {
       id: `user-${Date.now()}`,
-      fullName: formData.fullName,
-      email: formData.email,
-      mobile: formData.mobile,
-      whatsapp: formData.whatsapp,
-      emiratesId: formData.emiratesId,
-      mandalam: formData.mandalam,
-      emirate: formData.emirate,
-      addressUAE: formData.addressUAE,
-      addressIndia: formData.addressIndia,
-      nominee: formData.nominee,
-      relation: formData.relation,
-      isKMCCMember: formData.isKMCCMember,
-      kmccNo: formData.kmccNo,
-      isPratheekshaMember: formData.isPratheekshaMember,
-      pratheekshaNo: formData.pratheekshaNo,
-      recommendedBy: formData.recommendedBy,
+      fullName: fullName,
+      email: email,
+      mobile: mobile,
+      whatsapp: findAnswer('whatsapp') || mobile,
+      emiratesId: emiratesId,
+      mandalam: mandalam,
+      emirate: emirate,
+      addressUAE: findAnswer('address uae') || '',
+      addressIndia: findAnswer('address india') || '',
+      nominee: findAnswer('nominee') || '',
+      relation: findAnswer('relation') || '',
       status: UserStatus.PENDING,
       paymentStatus: PaymentStatus.UNPAID,
       role: Role.USER,
@@ -81,20 +94,61 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       membershipNo: newMembershipNo,
       registrationDate: new Date().toLocaleDateString(),
       password: formData.password,
-      isImported: false
+      isImported: false,
+      customData: customData // Store all answers here
     };
 
     onRegister(newUser);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const handleCustomChange = (questionId: string, value: string) => {
+      setCustomData(prev => ({ ...prev, [questionId]: value }));
+      
+      // Check for dependent children to reset their values
+      const childQs = questions.filter(q => q.parentQuestionId === questionId);
+      if (childQs.length > 0) {
+          setCustomData(prev => {
+              const newState = {...prev};
+              childQs.forEach(child => {
+                   newState[child.id] = ''; // Reset child value
+              });
+              return newState;
+          });
+      }
   };
 
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, checked } = e.target;
-    setFormData(prev => ({ ...prev, [name]: checked }));
+  const renderField = (q: RegistrationQuestion) => {
+      const commonClasses = "w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+      
+      if (q.type === FieldType.TEXT) {
+          return <input required={q.required} type="text" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.NUMBER) {
+          return <input required={q.required} type="number" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.TEXTAREA) {
+          return <textarea required={q.required} placeholder={q.placeholder || q.label} className={`${commonClasses} h-20 resize-none`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.DROPDOWN) {
+          return (
+              <select required={q.required} className={`${commonClasses} bg-white`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}>
+                  <option value="">Select {q.label}...</option>
+                  {q.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+          );
+      }
+      if (q.type === FieldType.DEPENDENT_DROPDOWN) {
+          const parentVal = customData[q.parentQuestionId || ''];
+          const availableOptions = parentVal ? (q.dependentOptions?.[parentVal] || []) : [];
+          
+          return (
+              <select required={q.required} disabled={!parentVal} className={`${commonClasses} bg-white disabled:bg-slate-100`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}>
+                  <option value="">{parentVal ? `Select ${q.label}...` : `Select ${questions.find(p => p.id === q.parentQuestionId)?.label} first`}</option>
+                  {availableOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+          );
+      }
+      return null;
   };
 
   if (isRegistering) {
@@ -107,69 +161,39 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
                   </div>
 
                   <form onSubmit={handleRegisterSubmit} className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-4">
-                              <input name="fullName" required onChange={handleInputChange} type="text" placeholder="Full Name *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                              <input name="whatsapp" required onChange={handleInputChange} type="text" placeholder="WhatsApp Number *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                              <select name="relation" onChange={handleInputChange} className="w-full px-4 py-2 border border-slate-300 rounded outline-none bg-white">
-                                  <option value="Father">Father</option>
-                                  <option value="Mother">Mother</option>
-                                  <option value="Son">Son</option>
-                                  <option value="Daughter">Daughter</option>
-                                  <option value="Wife">Wife</option>
-                                  <option value="Husband">Husband</option>
-                              </select>
-                              <select name="mandalam" onChange={handleInputChange} className="w-full px-4 py-2 border border-slate-300 rounded outline-none bg-white">
-                                  {Object.values(Mandalam).map(m => <option key={m} value={m}>{m}</option>)}
-                              </select>
+                      
+                      {questions.length === 0 && (
+                          <div className="text-center py-8 text-amber-600 bg-amber-50 rounded-xl">
+                              Admin has not configured registration questions yet. <br/>
+                              Please contact support.
                           </div>
-                          <div className="space-y-4">
-                              <input name="mobile" required onChange={handleInputChange} type="text" placeholder="Mobile Number *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                              <input name="nominee" required onChange={handleInputChange} type="text" placeholder="Nominee *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                              <select name="emirate" onChange={handleInputChange} className="w-full px-4 py-2 border border-slate-300 rounded outline-none bg-white">
-                                  {Object.values(Emirate).map(e => <option key={e} value={e}>{e}</option>)}
-                              </select>
-                              <input name="email" required onChange={handleInputChange} type="email" placeholder="Email Address *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                          </div>
-                      </div>
-
-                      <div className="space-y-4">
-                           <textarea name="addressUAE" required onChange={handleInputChange} placeholder="Address UAE *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none h-20 resize-none focus:border-primary focus:ring-1 focus:ring-primary"></textarea>
-                           <textarea name="addressIndia" required onChange={handleInputChange} placeholder="Address India *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none h-20 resize-none focus:border-primary focus:ring-1 focus:ring-primary"></textarea>
-                      </div>
+                      )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                            <label className="flex items-center gap-2 cursor-pointer mb-2 text-sm font-medium text-slate-700">
-                                <input name="isKMCCMember" onChange={handleCheckboxChange} type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" /> KMCC Member
-                            </label>
-                            {formData.isKMCCMember && (
-                                <input name="kmccNo" onChange={handleInputChange} type="text" placeholder="KMCC Membership No" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" />
-                            )}
-                          </div>
-                          <div>
-                            <label className="flex items-center gap-2 cursor-pointer mb-2 text-sm font-medium text-slate-700">
-                                <input name="isPratheekshaMember" onChange={handleCheckboxChange} type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" /> Pratheeksha Member
-                            </label>
-                             {formData.isPratheekshaMember && (
-                                <input name="pratheekshaNo" onChange={handleInputChange} type="text" placeholder="Pratheeksha Membership No" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" />
-                            )}
+                           {/* Dynamically Render Questions */}
+                           {questions.map(q => (
+                               <div key={q.id} className={q.type === FieldType.TEXTAREA ? "md:col-span-2" : ""}>
+                                   <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">{q.label} {q.required && '*'}</label>
+                                   {renderField(q)}
+                               </div>
+                           ))}
+                      </div>
+                      
+                      {/* Core Password Fields (Always Required) */}
+                      <div className="space-y-4 pt-4 border-t border-slate-100">
+                          <h3 className="text-sm font-bold text-slate-900">Security</h3>
+                           {/* Fallback Email if not in questions */}
+                          {!questions.some(q => q.label.toLowerCase().includes('email')) && (
+                              <input required type="email" placeholder="Email Address *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <input required type="password" placeholder="Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+                              <input required type="password" placeholder="Confirm Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} />
                           </div>
                       </div>
 
-                      <input name="recommendedBy" onChange={handleInputChange} type="text" placeholder="Recommended By" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                      <input name="emiratesId" required onChange={handleInputChange} type="text" placeholder="Emirates ID (15 digits) *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-
-                      <div className="space-y-4">
-                          <div className="relative">
-                               <input name="password" required onChange={handleInputChange} type="password" placeholder="Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                          </div>
-                          <div className="relative">
-                               <input name="confirmPassword" required onChange={handleInputChange} type="password" placeholder="Confirm Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
-                          </div>
-                      </div>
-
-                      <button type="submit" disabled={isLoading} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
+                      <button type="submit" disabled={isLoading || questions.length === 0} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
                           {isLoading ? 'Creating Account...' : 'Create Account'}
                       </button>
 
