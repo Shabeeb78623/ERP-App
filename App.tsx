@@ -8,7 +8,7 @@ import MembershipCard from './components/MembershipCard';
 import Auth from './components/Auth';
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
-import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord } from './types';
+import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification } from './types';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [benefits, setBenefits] = useState<BenefitRecord[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'USER'>('USER');
 
@@ -29,43 +30,61 @@ const App: React.FC = () => {
       relation: 'Father'
   });
 
-  // Fetch Data Function
-  const fetchData = async () => {
-      setIsLoading(true);
-      try {
-          const [loadedUsers, loadedBenefits] = await Promise.all([
-              StorageService.getUsers(),
-              StorageService.getBenefits()
-          ]);
-          setUsers(loadedUsers);
-          setBenefits(loadedBenefits);
-      } catch (error) {
-          console.error("Failed to load data", error);
-          alert("Failed to connect to database. Please check your internet.");
-      } finally {
-          setIsLoading(false);
-      }
-  };
-
+  // --- SESSION PERSISTENCE & REAL-TIME SYNC ---
   useEffect(() => {
-    fetchData();
+      // 1. Subscribe to Real-time Data
+      const unsubscribeUsers = StorageService.subscribeToUsers((liveUsers) => {
+          setUsers(liveUsers);
+      });
+      
+      const unsubscribeBenefits = StorageService.subscribeToBenefits((liveBenefits) => {
+          setBenefits(liveBenefits);
+      });
+
+      const unsubscribeNotifs = StorageService.subscribeToNotifications((liveNotifs) => {
+          setNotifications(liveNotifs);
+      });
+
+      // 2. Restore Session from LocalStorage
+      const restoreSession = async () => {
+          const storedUserId = localStorage.getItem('vadakara_session_user_id');
+          if (storedUserId) {
+              // Wait a brief moment for users to load from subscription or fetch manually
+              // We can just fetch the single user to be fast
+              const allUsers = await StorageService.getUsers();
+              const user = allUsers.find(u => u.id === storedUserId);
+              if (user) {
+                  setCurrentUser(user);
+                  if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
+                      setViewMode('ADMIN');
+                  } else {
+                      setViewMode('USER');
+                  }
+                  setCurrentView('DASHBOARD');
+              }
+          }
+          setIsLoading(false);
+      };
+
+      restoreSession();
+
+      // Cleanup subscriptions on unmount
+      return () => {
+          unsubscribeUsers();
+          unsubscribeBenefits();
+          unsubscribeNotifs();
+      };
   }, []);
 
-  // Live Reload wrapper for updates
-  const refreshData = async () => {
-      const [loadedUsers, loadedBenefits] = await Promise.all([
-          StorageService.getUsers(),
-          StorageService.getBenefits()
-      ]);
-      setUsers(loadedUsers);
-      setBenefits(loadedBenefits);
-      
-      // Update current user if logged in
-      if (currentUser) {
-          const updatedCurrent = loadedUsers.find(u => u.id === currentUser.id);
-          if (updatedCurrent) setCurrentUser(updatedCurrent);
+  // Also update currentUser when the users list changes (e.g. admin edits my profile)
+  useEffect(() => {
+      if (currentUser && users.length > 0) {
+          const freshUser = users.find(u => u.id === currentUser.id);
+          if (freshUser) {
+              setCurrentUser(freshUser);
+          }
       }
-  };
+  }, [users]);
 
   const stats: DashboardStats = {
       total: users.length - 1, 
@@ -82,20 +101,20 @@ const App: React.FC = () => {
   const handleLogin = async (identifier: string, passwordInput: string) => {
       setIsLoading(true);
       
-      // Hardcoded fallback for Admin if DB is empty or slow
+      // Hardcoded fallback for Admin
       if (identifier === 'admin' && passwordInput === 'admin123') {
         const admin = users.find(u => u.email === 'admin');
         if (admin) {
           setCurrentUser(admin);
           setViewMode('ADMIN');
           setCurrentView('DASHBOARD');
+          localStorage.setItem('vadakara_session_user_id', admin.id); // Save session
           setIsLoading(false);
           return;
         }
       }
 
       try {
-        // Always fetch fresh data on login attempt to ensure synced state
         const freshUsers = await StorageService.getUsers();
         setUsers(freshUsers);
         
@@ -107,14 +126,13 @@ const App: React.FC = () => {
         
         if (user && user.password === passwordInput) {
             setCurrentUser(user);
+            localStorage.setItem('vadakara_session_user_id', user.id); // Save session
             
-            // Logic for Roles
             if (user.role === Role.MASTER_ADMIN) {
                 setViewMode('ADMIN');
             } else if (user.role === Role.USER) {
                 setViewMode('USER');
             } else {
-                 // Mandalam/Custom Admins default to Admin view but can switch
                  setViewMode('ADMIN');
             }
 
@@ -137,9 +155,10 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       await StorageService.addUser(newUser);
-      await refreshData();
+      // No need to refreshData(), subscription handles it
       
       setCurrentUser(newUser);
+      localStorage.setItem('vadakara_session_user_id', newUser.id); // Save session
       setViewMode('USER');
       setCurrentView('DASHBOARD');
       alert("Registration successful!");
@@ -151,6 +170,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+      localStorage.removeItem('vadakara_session_user_id'); // Clear session
       setCurrentUser(null);
       setCurrentView('AUTH');
       setViewMode('USER');
@@ -160,7 +180,6 @@ const App: React.FC = () => {
       setIsLoading(true);
       try {
         await StorageService.updateUser(userId, updates);
-        await refreshData();
       } catch (error) {
           console.error("Update failed", error);
           alert("Failed to update user.");
@@ -173,7 +192,6 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
         await StorageService.addBenefit(benefit);
-        await refreshData();
     } catch (error) {
         console.error(error);
         alert("Failed to add benefit");
@@ -187,7 +205,6 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
         await StorageService.deleteBenefit(id);
-        await refreshData();
     } catch (error) {
         console.error(error);
         alert("Failed to delete benefit");
@@ -224,7 +241,7 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    if (isLoading && !currentUser) { // Show loading only on initial load or auth
+    if (isLoading && !currentUser) { 
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
                 <div className="animate-spin text-primary text-4xl mb-4">
@@ -245,7 +262,7 @@ const App: React.FC = () => {
             case 'CARD': return <MembershipCard user={currentUser} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
-            case 'NOTIFICATIONS': return <UserNotifications user={currentUser} />;
+            case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />; // Pass notifications prop
             default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
         }
     } else {
@@ -289,7 +306,6 @@ const App: React.FC = () => {
     >
       {renderContent()}
 
-      {/* Loading Overlay for Actions */}
       {isLoading && currentUser && (
           <div className="fixed inset-0 z-[200] bg-white/50 backdrop-blur-sm flex items-center justify-center">
                <div className="animate-spin text-primary text-3xl">

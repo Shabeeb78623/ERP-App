@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
@@ -37,12 +38,10 @@ const Layout: React.FC<LayoutProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
 
-  // If not logged in, just render children (Auth pages)
   if (!currentUser) {
     return <div className="min-h-screen bg-slate-50">{children}</div>;
   }
 
-  // Fix: StorageService.getUsers() returns a Promise, so we must await it before filtering.
   const handleExportExcel = async () => {
     const allUsers = await StorageService.getUsers();
     const users = allUsers.filter(u => u.role !== Role.MASTER_ADMIN);
@@ -84,10 +83,16 @@ const Layout: React.FC<LayoutProps> = ({
     document.body.removeChild(link);
   };
 
-  const handleResetApp = () => {
-      if (window.confirm("WARNING: This will delete ALL data (users, benefits, notifications) and reset the app to default. Are you sure?")) {
-          localStorage.clear();
-          window.location.reload();
+  const handleResetApp = async () => {
+      if (window.confirm("DANGER: This will permanently DELETE ALL data from the Cloud Database. This action cannot be undone. Are you sure?")) {
+          try {
+              await StorageService.resetDatabase();
+              localStorage.clear();
+              window.location.reload();
+          } catch(e) {
+              alert("Failed to reset database. Check console.");
+              console.error(e);
+          }
       }
   };
 
@@ -101,8 +106,6 @@ const Layout: React.FC<LayoutProps> = ({
         { id: 'ACCOUNT', label: 'Account', icon: Settings },
       ]
     : [
-        // Admin navigation is handled inside the dashboard tabs, 
-        // but we can add a 'Home' link if needed.
         { id: 'DASHBOARD', label: 'Console', icon: LayoutDashboard },
       ];
 

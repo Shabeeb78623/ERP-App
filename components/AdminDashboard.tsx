@@ -27,7 +27,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
   const [adminSearchTerm, setAdminSearchTerm] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [batchMandalam, setBatchMandalam] = useState<string>('');
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMessage, setNotifMessage] = useState('');
   const [notifTarget, setNotifTarget] = useState('ALL');
@@ -77,7 +76,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
           );
       }
 
-      // Dropdown Filters (Only apply if active tab uses them)
+      // Dropdown Filters
       if (activeTab === 'Users Overview') {
           if (filterMandalam !== 'All Mandalams') filtered = filtered.filter(u => u.mandalam === filterMandalam);
           if (filterStatus !== 'All Status') filtered = filtered.filter(u => u.status === filterStatus);
@@ -151,15 +150,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                     // Handle commas inside quotes for names
                     const cols = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(s => s.replace(/^"|"$/g, '').trim()) || row.split(',');
                     
-                    if (cols.length >= 3) {
+                    // Expectation: Name, EID, Mobile, Mandalam
+                    if (cols.length >= 4) {
                          const fullName = cols[0];
-                         const mobile = cols[1];
-                         const emiratesId = cols[2];
-                         // Optional 4th column for Mandalam
+                         const emiratesId = cols[1];
+                         const mobile = cols[2];
                          const csvMandalam = cols[3] as Mandalam;
                          
-                         // Use selected batch Mandalam or CSV value or fallback
-                         const assignedMandalam = batchMandalam ? (batchMandalam as Mandalam) : (Object.values(Mandalam).includes(csvMandalam) ? csvMandalam : Mandalam.BALUSHERI);
+                         const assignedMandalam = Object.values(Mandalam).includes(csvMandalam) ? csvMandalam : Mandalam.BALUSHERI;
 
                          if (fullName && mobile && emiratesId) {
                              const membershipNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
@@ -180,7 +178,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                                  photoUrl: '',
                                  membershipNo: membershipNo,
                                  registrationDate: new Date().toLocaleDateString(),
-                                 password: emiratesId, 
+                                 password: emiratesId, // Default password is EID
                                  isImported: true 
                              });
                          }
@@ -189,7 +187,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
 
                 const added = await StorageService.addUsers(newUsers);
                 alert(`Successfully imported ${added.length} users.`);
-                window.location.reload(); // Force reload to fetch fresh from Firebase
+                // No need to reload, live sync handles it
             } catch (error) {
                 console.error(error);
                 alert("Error parsing CSV. Check console for details.");
@@ -227,7 +225,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
       }
   };
 
-  // Benefit Search Filtering
   const filteredUsersForBenefit = visibleUsers.filter(u => 
       u.fullName.toLowerCase().includes(benefitUserSearch.toLowerCase()) || 
       u.membershipNo.toLowerCase().includes(benefitUserSearch.toLowerCase())
@@ -485,9 +482,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                              </div>
                          </div>
                      ))}
-                     {filterUsers(visibleUsers, searchTerm).length === 0 && (
-                         <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">No users found.</div>
-                     )}
                  </div>
             </div>
         )}
@@ -512,9 +506,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                              </div>
                          </div>
                      ))}
-                     {visibleUsers.filter(u => u.paymentStatus === PaymentStatus.PENDING).length === 0 && (
-                         <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">No pending payment approvals.</div>
-                     )}
                  </div>
              </div>
         )}
@@ -525,20 +516,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                     <UserPlus className="w-8 h-8" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Bulk User Import</h3>
-                <p className="text-slate-500 mb-6">Upload a CSV file (Name, Mobile, EmiratesID) to create accounts instantly.</p>
+                <p className="text-slate-500 mb-6">Upload a CSV file. Columns must be: <strong>Name, Emirates ID, Mobile, Mandalam</strong>.</p>
                 
-                <div className="mb-6 text-left">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Assign Batch Mandalam</label>
-                    <select 
-                        className="w-full p-3 border border-slate-200 rounded-xl outline-none"
-                        value={batchMandalam}
-                        onChange={(e) => setBatchMandalam(e.target.value)}
-                    >
-                        <option value="">Use CSV Data or Default (Balusheri)</option>
-                        {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                </div>
-
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 mb-6 hover:border-primary transition-colors relative">
                     <input type="file" accept=".csv" onChange={(e) => setImportFile(e.target.files ? e.target.files[0] : null)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -630,7 +609,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ users, benefits, stats,
                      </select>
                      <button onClick={handleSendNotification} className="w-full py-3 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark">Send</button>
                  </div>
-                 {/* Notif History would fetch from async storage, simplistic view here for now */}
              </div>
         )}
         

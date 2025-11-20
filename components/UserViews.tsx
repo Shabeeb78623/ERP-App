@@ -7,6 +7,7 @@ import { StorageService } from '../services/storageService';
 interface BaseProps {
     user: User;
     isLoading?: boolean;
+    notifications?: Notification[]; // Added prop
 }
 
 // --- User Benefits View ---
@@ -138,28 +139,19 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
 };
 
 // --- Notifications View ---
-export const UserNotifications: React.FC<BaseProps> = ({ user }) => {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchNotifs = async () => {
-            const allNotifs = await StorageService.getNotifications();
-            const myNotifs = allNotifs.filter(n => {
-                 if (n.recipients && n.recipients.includes(user.id)) return true;
-                 if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
-                 if (n.targetAudience === `${user.mandalam} Members`) return true;
-                 return false;
-            });
-            setNotifications(myNotifs);
-            setLoading(false);
-        };
-        fetchNotifs();
-    }, [user]);
+export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [] }) => {
+    // Filter notifications for this specific user
+    const myNotifs = notifications.filter(n => {
+         if (n.recipients && n.recipients.includes(user.id)) return true;
+         if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
+         if (n.targetAudience === `${user.mandalam} Members`) return true;
+         return false;
+    });
 
     const handleClear = async (id: string) => {
-        await StorageService.deleteNotification(id); 
-        setNotifications(notifications.filter(n => n.id !== id));
+        if(window.confirm("Delete this message?")) {
+            await StorageService.deleteNotification(id); 
+        }
     }
 
     return (
@@ -167,14 +159,12 @@ export const UserNotifications: React.FC<BaseProps> = ({ user }) => {
              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm min-h-[600px]">
                 <div className="flex items-center justify-between mb-8">
                     <h2 className="text-2xl font-bold text-slate-900">Inbox</h2>
-                    <span className="text-xs font-bold bg-blue-50 text-primary px-3 py-1 rounded-full">{notifications.length} Messages</span>
+                    <span className="text-xs font-bold bg-blue-50 text-primary px-3 py-1 rounded-full">{myNotifs.length} Messages</span>
                 </div>
 
                 <div className="space-y-4">
-                    {loading ? (
-                         <p className="text-center py-10 text-slate-400">Loading messages...</p>
-                    ) : notifications.length > 0 ? (
-                        notifications.map(n => (
+                    {myNotifs.length > 0 ? (
+                        myNotifs.map(n => (
                             <div key={n.id} className="p-5 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-colors group">
                                 <div className="flex justify-between items-start mb-2">
                                     <h4 className="font-bold text-slate-900">{n.title}</h4>

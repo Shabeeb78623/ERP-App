@@ -8,8 +8,8 @@ import {
     updateDoc, 
     deleteDoc, 
     query, 
-    where,
-    orderBy
+    onSnapshot,
+    writeBatch
 } from 'firebase/firestore';
 import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus } from '../types';
 
@@ -19,7 +19,7 @@ const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const YEARS_COLLECTION = 'years';
 
-// Master Admin Fallback (In case DB is empty)
+// Master Admin Fallback
 const ADMIN_USER: User = {
   id: 'admin-master',
   fullName: 'System Administrator',
@@ -41,28 +41,55 @@ const ADMIN_USER: User = {
 
 export const StorageService = {
   
+  // --- REAL-TIME SUBSCRIPTIONS ---
+  subscribeToUsers: (callback: (users: User[]) => void) => {
+      const q = query(collection(db, USERS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const users = snapshot.docs.map(doc => doc.data() as User);
+          // Ensure Admin always exists in the stream
+          if (!users.find(u => u.role === Role.MASTER_ADMIN)) {
+              callback([ADMIN_USER, ...users]);
+          } else {
+              callback(users);
+          }
+      });
+  },
+
+  subscribeToBenefits: (callback: (benefits: BenefitRecord[]) => void) => {
+      const q = query(collection(db, BENEFITS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const benefits = snapshot.docs.map(doc => doc.data() as BenefitRecord);
+          callback(benefits);
+      });
+  },
+
+  subscribeToNotifications: (callback: (notifications: Notification[]) => void) => {
+      const q = query(collection(db, NOTIFICATIONS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const notifs = snapshot.docs.map(doc => doc.data() as Notification);
+          // Sort by date desc
+          notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          callback(notifs);
+      });
+  },
+
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
     try {
         const snapshot = await getDocs(collection(db, USERS_COLLECTION));
         const users = snapshot.docs.map(doc => doc.data() as User);
-        
-        // Check if admin exists, if not locally inject/create (safety net)
         if (!users.find(u => u.role === Role.MASTER_ADMIN)) {
             return [ADMIN_USER, ...users];
         }
         return users;
     } catch (error) {
         console.error("Error fetching users:", error);
-        return [ADMIN_USER]; // Fallback to allow login if DB fails
+        return [ADMIN_USER];
     }
   },
 
   findUserForLogin: async (identifier: string): Promise<User | undefined> => {
      const cleanId = identifier.trim().toLowerCase();
-     // This is a bit inefficient for large DBs, but flexible for "Mobile OR Email" logic.
-     // Ideally, we would run two queries or store a normalized 'loginId'.
-     // For this scale, fetching all (cached by SDK) is acceptable or client-side filtering after load.
      const users = await StorageService.getUsers();
      
      return users.find(u => 
@@ -72,14 +99,11 @@ export const StorageService = {
   },
 
   addUser: async (user: User): Promise<User> => {
-    // We perform checks against current data state
-    // Note: In a real backend, these unique constraints should be Firestore Rules or Cloud Functions
     const users = await StorageService.getUsers();
 
     if (user.email && users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase())) {
       throw new Error(`User with email ${user.email} already exists.`);
     }
-    
     if (users.find(u => u.emiratesId === user.emiratesId)) {
       throw new Error(`User with Emirates ID ${user.emiratesId} already exists.`);
     }
@@ -88,12 +112,18 @@ export const StorageService = {
     return user;
   },
 
-  // Bulk Insert
   addUsers: async (newUsers: User[]): Promise<User[]> => {
-    const batchPromises = newUsers.map(user => 
-        setDoc(doc(db, USERS_COLLECTION, user.id), user)
-    );
-    await Promise.all(batchPromises);
+    // Firestore batched writes (max 500 per batch)
+    const batchSize = 500;
+    for (let i = 0; i < newUsers.length; i += batchSize) {
+        const chunk = newUsers.slice(i, i + batchSize);
+        const batch = writeBatch(db);
+        chunk.forEach(user => {
+            const ref = doc(db, USERS_COLLECTION, user.id);
+            batch.set(ref, user);
+        });
+        await batch.commit();
+    }
     return newUsers;
   },
 
@@ -142,11 +172,9 @@ export const StorageService = {
 
   // --- NOTIFICATIONS ---
   getNotifications: async (): Promise<Notification[]> => {
-      // Ideally order by date desc
       const q = query(collection(db, NOTIFICATIONS_COLLECTION));
       const snapshot = await getDocs(q);
       const notifs = snapshot.docs.map(doc => doc.data() as Notification);
-      // Client side sort for simplicity
       return notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   },
 
@@ -173,16 +201,23 @@ export const StorageService = {
       if (years.find(y => y.year === year)) {
           throw new Error("Year already exists");
       }
-
-      // 1. Archive all existing years
       const archivePromises = years.map(y => 
           updateDoc(doc(db, YEARS_COLLECTION, y.year.toString()), { status: 'ARCHIVED' })
       );
       await Promise.all(archivePromises);
-
-      // 2. Create new year
       const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
-      // Using year as ID for easy lookup
       await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
+  },
+
+  // --- DANGER ZONE: RESET ---
+  resetDatabase: async (): Promise<void> => {
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION];
+      
+      for (const colName of collections) {
+          const q = query(collection(db, colName));
+          const snapshot = await getDocs(q);
+          const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+          await Promise.all(deletePromises);
+      }
   }
 };
