@@ -33,9 +33,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
     email: '',
     password: '',
     confirmPassword: '',
-    // These are kept for core logic, but can be hidden if questions cover them
-    // For this implementation, we assume questions cover details like Name, Mobile, etc.
-    // But we need to map some dynamic fields back to core user props for the system to work.
   });
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -50,24 +47,16 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       return;
     }
 
-    // --- Mapping Logic ---
-    // In a dynamic system, we need to know which question corresponds to 'fullName', 'mobile', etc.
-    // For simplicity in this demo, we will assume the Admin creates questions with specific labels 
-    // OR we just try to fuzzy match common labels to core fields.
-    // The robust way is to have 'system' flags on questions, but we will stick to label matching or fallback.
-    
     const findAnswer = (labelPart: string) => {
         const q = questions.find(q => q.label.toLowerCase().includes(labelPart));
         return q ? customData[q.id] : '';
     }
 
-    // Map dynamic answers to core User fields
-    // If a core field isn't found in questions, we fallback to empty string (system might require updates)
     const fullName = findAnswer('name') || 'Unknown';
     const mobile = findAnswer('mobile') || '0000000000';
     const emiratesId = findAnswer('emirates id') || '000000000000000';
-    const email = findAnswer('email') || formData.email; // Prefer question answer, else form email
-    const mandalam = (findAnswer('mandalam') as Mandalam) || Mandalam.BALUSHERI;
+    const email = findAnswer('email') || formData.email; 
+    const mandalam = (findAnswer('mandalam') as Mandalam) || Mandalam.BALUSSERY;
     const emirate = (findAnswer('emirate') as Emirate) || Emirate.DUBAI;
 
     const currentYear = new Date().getFullYear();
@@ -95,7 +84,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       registrationDate: new Date().toLocaleDateString(),
       password: formData.password,
       isImported: false,
-      customData: customData // Store all answers here
+      customData: customData 
     };
 
     onRegister(newUser);
@@ -104,13 +93,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const handleCustomChange = (questionId: string, value: string) => {
       setCustomData(prev => ({ ...prev, [questionId]: value }));
       
-      // Check for dependent children to reset their values
       const childQs = questions.filter(q => q.parentQuestionId === questionId);
       if (childQs.length > 0) {
           setCustomData(prev => {
               const newState = {...prev};
               childQs.forEach(child => {
-                   newState[child.id] = ''; // Reset child value
+                   newState[child.id] = ''; 
               });
               return newState;
           });
@@ -208,9 +196,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4 relative overflow-hidden">
-      {/* Decorative Background Element */}
       <div className="absolute top-0 left-0 w-full h-1/2 bg-primary z-0"></div>
-      
       <div className="bg-white p-8 rounded-md shadow-xl border border-slate-200 w-full max-w-md space-y-8 relative z-10">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-primary tracking-tight uppercase">Vadakara NRI Forum</h1>

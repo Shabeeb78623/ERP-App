@@ -27,14 +27,16 @@ export enum BenefitType {
 }
 
 export enum Mandalam {
-  BALUSHERI = 'BALUSHERI',
   KUNNAMANGALAM = 'KUNNAMANGALAM',
-  KODUVALLI = 'KODUVALLI',
+  KUTTIADY = 'KUTTIADY',
   NADAPURAM = 'NADAPURAM',
-  KOYLANDI = 'KOYLANDI',
-  VADAKARA = 'VADAKARA',
-  BEPUR = 'BEPUR',
-  KUTTIYADI = 'KUTTIYADI',
+  THIRUVAMBADY = 'THIRUVAMBADY',
+  QUILANDY = 'QUILANDY',
+  PERAMBRA = 'PERAMBRA',
+  KODUVALLY = 'KODUVALLY',
+  BEYPORE = 'BEYPORE',
+  BALUSSERY = 'BALUSSERY',
+  ELATHUR = 'ELATHUR',
 }
 
 export enum Emirate {
@@ -101,6 +103,7 @@ export interface User {
   assignedMandalams?: Mandalam[];
   password?: string; 
   isImported?: boolean; // Flag to trigger profile completion
+  paymentRemarks?: string; // Stores user entered payment details
 
   // Dynamic Data
   customData?: Record<string, any>;

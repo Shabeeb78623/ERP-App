@@ -212,6 +212,13 @@ const App: React.FC = () => {
         setIsLoading(false);
     }
   };
+  
+  const handleDeleteNotification = async (id: string) => {
+    if(!window.confirm("Delete notification?")) return;
+    try {
+        await StorageService.deleteNotification(id);
+    } catch (e) { console.error(e); }
+  };
 
   const submitProfileCompletion = async () => {
       if (!currentUser) return;
@@ -262,7 +269,7 @@ const App: React.FC = () => {
             case 'CARD': return <MembershipCard user={currentUser} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
-            case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />; // Pass notifications prop
+            case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />;
             default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
         }
     } else {
@@ -270,24 +277,30 @@ const App: React.FC = () => {
         switch (currentView) {
             case 'DASHBOARD': return (
               <AdminDashboard 
+                currentUser={currentUser}
                 users={users} 
                 benefits={benefits}
+                notifications={notifications}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
+                onDeleteNotification={handleDeleteNotification}
                 isLoading={isLoading}
               />
             );
             case 'COMMUNICATIONS': return <Communications />;
             default: return (
               <AdminDashboard 
+                currentUser={currentUser}
                 users={users} 
                 benefits={benefits}
+                notifications={notifications}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
+                onDeleteNotification={handleDeleteNotification}
                 isLoading={isLoading}
               />
             );

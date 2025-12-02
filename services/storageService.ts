@@ -28,7 +28,7 @@ const ADMIN_USER: User = {
   mobile: '0000000000',
   whatsapp: '0000000000',
   emiratesId: '784000000000000',
-  mandalam: Mandalam.BALUSHERI,
+  mandalam: Mandalam.BALUSSERY,
   emirate: Emirate.DUBAI,
   status: UserStatus.APPROVED,
   paymentStatus: PaymentStatus.PAID,

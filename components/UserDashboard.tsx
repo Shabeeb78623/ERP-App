@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
-import { HeartHandshake, CheckCircle2, AlertCircle, CreditCard, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
@@ -20,13 +20,17 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
   }, []);
 
   const handlePaymentSubmit = () => {
-      if (!paymentRemarks) {
-          alert("Please enter remarks.");
+      if (!paymentRemarks.trim()) {
+          alert("Please enter transaction details or remarks.");
           return;
       }
       // Set status to PENDING upon submission, not PAID
-      onUpdateUser(user.id, { paymentStatus: PaymentStatus.PENDING });
-      alert("Payment details submitted for verification.");
+      onUpdateUser(user.id, { 
+          paymentStatus: PaymentStatus.PENDING,
+          paymentRemarks: paymentRemarks
+      });
+      alert("Payment details submitted successfully. Admin will verify shortly.");
+      setPaymentRemarks('');
   };
 
   // Function to map custom data ID to Label
@@ -85,10 +89,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          </div>
 
                          <div className="space-y-2">
-                             <label className="text-sm font-bold text-slate-700">Payment Reference</label>
+                             <label className="text-sm font-bold text-slate-700">Payment Proof / Remarks</label>
+                             <p className="text-xs text-slate-400">Please pay via bank transfer or to your Mandalam admin, then enter the details here.</p>
                              <textarea 
                                 className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-primary focus:bg-white transition-all resize-none h-24 text-sm"
-                                placeholder="Transaction ID, Bank Transfer Ref, or 'Paid Cash to Admin'..."
+                                placeholder="E.g. Paid AED 60 via Bank Transfer Ref: 12345678"
                                 value={paymentRemarks}
                                 onChange={(e) => setPaymentRemarks(e.target.value)}
                              />
@@ -118,6 +123,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                                 ? 'Your dues are cleared for this year.' 
                                 : 'Admin is reviewing your payment submission. Status will be updated shortly.'}
                         </p>
+                        {user.paymentStatus === PaymentStatus.PENDING && user.paymentRemarks && (
+                            <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-600 border border-slate-100">
+                                <strong>Your Submission:</strong> {user.paymentRemarks}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
