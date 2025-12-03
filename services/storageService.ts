@@ -11,7 +11,8 @@ import {
     onSnapshot,
     writeBatch
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion } from '../types';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType } from '../types';
+import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
 const USERS_COLLECTION = 'users';
@@ -113,9 +114,11 @@ export const StorageService = {
     return user;
   },
 
-  addUsers: async (newUsers: User[]): Promise<User[]> => {
+  addUsers: async (newUsers: User[], onProgress?: (count: number) => void): Promise<User[]> => {
     // Firestore batched writes (max 500 per batch)
     const batchSize = 500;
+    let processed = 0;
+
     for (let i = 0; i < newUsers.length; i += batchSize) {
         const chunk = newUsers.slice(i, i + batchSize);
         const batch = writeBatch(db);
@@ -124,6 +127,12 @@ export const StorageService = {
             batch.set(ref, user);
         });
         await batch.commit();
+        
+        // Add a small delay to prevent rate limiting and ensure UI updates
+        await new Promise(resolve => setTimeout(resolve, 50)); 
+        
+        processed += chunk.length;
+        if (onProgress) onProgress(processed);
     }
     return newUsers;
   },
@@ -175,6 +184,57 @@ export const StorageService = {
 
   deleteQuestion: async (id: string): Promise<void> => {
       await deleteDoc(doc(db, QUESTIONS_COLLECTION, id));
+  },
+
+  seedDefaultQuestions: async (): Promise<void> => {
+      const defaultQuestions: RegistrationQuestion[] = [
+          { id: 'q_fullname', label: 'Full Name', type: FieldType.TEXT, required: true, order: 1, systemMapping: 'fullName' },
+          { id: 'q_mobile', label: 'Mobile Number', type: FieldType.TEXT, required: true, order: 2, systemMapping: 'mobile' },
+          { id: 'q_whatsapp', label: 'WhatsApp Number', type: FieldType.TEXT, required: true, order: 3, systemMapping: 'whatsapp' },
+          { id: 'q_email', label: 'Email Address', type: FieldType.TEXT, required: true, order: 4, systemMapping: 'email' },
+          { id: 'q_pass', label: 'Password', type: FieldType.PASSWORD, required: true, order: 5, systemMapping: 'password' },
+          { id: 'q_emirate', label: 'Emirate', type: FieldType.DROPDOWN, required: true, order: 6, options: EMIRATES, systemMapping: 'emirate' },
+          { id: 'q_mandalam', label: 'Mandalam', type: FieldType.DROPDOWN, required: true, order: 7, options: MANDALAMS, systemMapping: 'mandalam' },
+          { id: 'q_nominee', label: 'Nominee Name', type: FieldType.TEXT, required: true, order: 8, systemMapping: 'nominee' },
+          { id: 'q_relation', label: 'Relation to Nominee', type: FieldType.TEXT, required: true, order: 9, systemMapping: 'relation' },
+          { id: 'q_address_uae', label: 'Address (UAE)', type: FieldType.TEXTAREA, required: true, order: 10, systemMapping: 'addressUAE' },
+          { id: 'q_address_india', label: 'Address (India)', type: FieldType.TEXTAREA, required: true, order: 11, systemMapping: 'addressIndia' },
+          
+          // Conditional Logic: KMCC
+          { id: 'q_kmcc_member', label: 'KMCC Member?', type: FieldType.DROPDOWN, required: true, order: 12, options: ['Yes', 'No'], systemMapping: 'isKMCCMember' },
+          { 
+              id: 'q_kmcc_no', 
+              label: 'KMCC Membership Number', 
+              type: FieldType.TEXT, 
+              required: false, 
+              order: 13, 
+              parentQuestionId: 'q_kmcc_member', 
+              dependentOptions: {'Yes': []},
+              systemMapping: 'kmccNo'
+          },
+          
+          // Conditional Logic: Pratheeksha
+          { id: 'q_pratheeksha_member', label: 'Pratheeksha Member?', type: FieldType.DROPDOWN, required: true, order: 14, options: ['Yes', 'No'], systemMapping: 'isPratheekshaMember' },
+          { 
+              id: 'q_pratheeksha_no', 
+              label: 'Pratheeksha Membership number', 
+              type: FieldType.TEXT, 
+              required: false, 
+              order: 15, 
+              parentQuestionId: 'q_pratheeksha_member', 
+              dependentOptions: {'Yes': []},
+              systemMapping: 'pratheekshaNo'
+          },
+          
+          { id: 'q_recommended', label: 'Recommended By', type: FieldType.TEXT, required: false, order: 16, systemMapping: 'recommendedBy' },
+      ];
+
+      const batch = writeBatch(db);
+      defaultQuestions.forEach(q => {
+          const ref = doc(db, QUESTIONS_COLLECTION, q.id);
+          batch.set(ref, q);
+      });
+      await batch.commit();
   },
 
   // --- BENEFITS ---

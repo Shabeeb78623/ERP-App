@@ -1,7 +1,8 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification } from '../types';
-import { Search, Upload, Trash2, Eye, Plus, Shield, Calendar, UserPlus, Edit, Save, X, Filter, Check, ArrowUp, ArrowDown, CheckCircle2, XCircle, Wallet, Bell, LogOut, Send, ChevronDown, FileUp, RotateCcw, Download, UserCog, MoreHorizontal } from 'lucide-react';
+import { Search, Upload, Trash2, Eye, Plus, Shield, Calendar, UserPlus, Edit, Save, X, Filter, Check, ArrowUp, ArrowDown, CheckCircle2, XCircle, Wallet, Bell, LogOut, Send, ChevronDown, FileUp, RotateCcw, Download, UserCog, MoreHorizontal, RefreshCw, AlertCircle } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS, EMIRATES } from '../constants';
 
@@ -32,6 +33,26 @@ const ADMIN_PERMISSIONS = [
   { id: 'send_notifications', label: 'Can Send Notifications' },
 ];
 
+const SYSTEM_FIELD_MAPPING = [
+    { value: 'NONE', label: 'None (Custom Data)' },
+    { value: 'fullName', label: 'Full Name' },
+    { value: 'email', label: 'Email Address' },
+    { value: 'password', label: 'Password' },
+    { value: 'mobile', label: 'Mobile Number' },
+    { value: 'emiratesId', label: 'Emirates ID' },
+    { value: 'mandalam', label: 'Mandalam' },
+    { value: 'emirate', label: 'Emirate' },
+    { value: 'addressUAE', label: 'Address (UAE)' },
+    { value: 'addressIndia', label: 'Address (India)' },
+    { value: 'nominee', label: 'Nominee' },
+    { value: 'relation', label: 'Relation to Nominee' },
+    { value: 'isKMCCMember', label: 'KMCC Member?' },
+    { value: 'kmccNo', label: 'KMCC No' },
+    { value: 'isPratheekshaMember', label: 'Pratheeksha Member?' },
+    { value: 'pratheekshaNo', label: 'Pratheeksha No' },
+    { value: 'recommendedBy', label: 'Recommended By' },
+];
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
   const [activeTab, setActiveTab] = useState('User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +68,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
   const [years, setYears] = useState<YearConfig[]>([]);
 
@@ -60,8 +82,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       type: FieldType.TEXT,
       required: true,
       order: 0,
-      dependentOptions: {}
+      dependentOptions: {},
+      options: [],
+      systemMapping: 'NONE'
   });
+  const [newOption, setNewOption] = useState('');
 
   const [benefitForm, setBenefitForm] = useState({
       userId: '',
@@ -125,30 +150,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   // --- ACTIONS ---
 
-  const handleApproveUser = (id: string) => {
+  const handleApproveUser = async (id: string) => {
       if(confirm("Approve this user?")) {
-          onUpdateUser(id, { status: UserStatus.APPROVED });
+          try {
+              await StorageService.updateUser(id, { status: UserStatus.APPROVED });
+          } catch(e) {
+              alert("Failed to approve user.");
+              console.error(e);
+          }
       }
   };
 
-  const handleRejectUser = (id: string) => {
+  const handleRejectUser = async (id: string) => {
       if(confirm("Reject this user?")) {
-          onUpdateUser(id, { status: UserStatus.REJECTED });
+           try {
+              await StorageService.updateUser(id, { status: UserStatus.REJECTED });
+          } catch(e) {
+              alert("Failed to reject user.");
+              console.error(e);
+          }
       }
   };
 
-  const handleApprovePayment = (id: string) => {
+  const handleApprovePayment = async (id: string) => {
       if(confirm("Confirm payment received? This will also approve the user.")) {
-          onUpdateUser(id, { 
-              paymentStatus: PaymentStatus.PAID, 
-              status: UserStatus.APPROVED 
-          });
+          try {
+              await StorageService.updateUser(id, { 
+                  paymentStatus: PaymentStatus.PAID, 
+                  status: UserStatus.APPROVED 
+              });
+              alert("Payment approved and user status updated.");
+          } catch (error) {
+              console.error(error);
+              alert("Failed to approve payment. Please try again.");
+          }
       }
   };
 
-  const handleRejectPayment = (id: string) => {
+  const handleRejectPayment = async (id: string) => {
       if(confirm("Reject this payment?")) {
-          onUpdateUser(id, { paymentStatus: PaymentStatus.UNPAID });
+          try {
+              await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID });
+              alert("Payment rejected.");
+          } catch (error) {
+              console.error(error);
+              alert("Failed to reject payment.");
+          }
       }
   };
 
@@ -210,13 +257,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       }
   };
 
-  const handleAssignAdmin = (user: User, role: Role) => {
-      setSelectedUserForAdmin(user);
-      
+  const handleAssignAdmin = async (user: User, role: Role) => {
       if (role === Role.MANDALAM_ADMIN) {
+          setSelectedUserForAdmin(user);
           setAssignMandalamSel(user.assignedMandalams || [user.mandalam]);
           setShowMandalamModal(true);
       } else if (role === Role.CUSTOM_ADMIN) {
+          setSelectedUserForAdmin(user);
           setCustomPerms(user.permissions || []);
           setCustomMandalams(user.assignedMandalams || []);
           setShowCustomModal(true);
@@ -224,28 +271,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           // Master Admin or Reset to User (Revoke)
           const action = role === Role.USER ? "Revoke Admin Rights" : "Grant All Access Admin";
           if(confirm(`${action} for ${user.fullName}?`)) {
-              onUpdateUser(user.id, { role: role, assignedMandalams: [], permissions: [] });
+              try {
+                  await StorageService.updateUser(user.id, { role: role, assignedMandalams: [], permissions: [] });
+                  alert(`Successfully executed: ${action}`);
+              } catch (error) {
+                  console.error(error);
+                  alert("Failed to update admin role.");
+              }
           }
-          setSelectedUserForAdmin(null);
       }
   };
 
-  const saveAdminAssignment = () => {
+  const saveAdminAssignment = async () => {
       if (!selectedUserForAdmin) return;
       
-      if (showMandalamModal) {
-          onUpdateUser(selectedUserForAdmin.id, {
-              role: Role.MANDALAM_ADMIN,
-              assignedMandalams: assignMandalamSel
-          });
-          setShowMandalamModal(false);
-      } else if (showCustomModal) {
-          onUpdateUser(selectedUserForAdmin.id, {
-              role: Role.CUSTOM_ADMIN,
-              permissions: customPerms,
-              assignedMandalams: customMandalams 
-          });
-          setShowCustomModal(false);
+      try {
+        if (showMandalamModal) {
+            await StorageService.updateUser(selectedUserForAdmin.id, {
+                role: Role.MANDALAM_ADMIN,
+                assignedMandalams: assignMandalamSel
+            });
+            setShowMandalamModal(false);
+            alert("Mandalam Admin assigned successfully.");
+        } else if (showCustomModal) {
+            await StorageService.updateUser(selectedUserForAdmin.id, {
+                role: Role.CUSTOM_ADMIN,
+                permissions: customPerms,
+                assignedMandalams: customMandalams 
+            });
+            setShowCustomModal(false);
+            alert("Custom Admin assigned successfully.");
+        }
+      } catch (e) {
+          console.error(e);
+          alert("Failed to save assignment.");
       }
       setSelectedUserForAdmin(null);
   };
@@ -255,17 +314,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setEditUserForm(user);
   };
   
-  const saveEditedUser = () => {
+  const saveEditedUser = async () => {
       if(editingUser && editUserForm) {
-          onUpdateUser(editingUser.id, editUserForm);
-          setEditingUser(null);
-          setEditUserForm({});
+          try {
+             await StorageService.updateUser(editingUser.id, editUserForm);
+             alert("User updated successfully.");
+             setEditingUser(null);
+             setEditUserForm({});
+          } catch(e) {
+              console.error(e);
+              alert("Failed to update user.");
+          }
       }
   };
 
   const handleImportUsers = async () => {
       if (!importFile) return;
       setIsImporting(true);
+      setImportProgress(0);
       try {
           const text = await importFile.text();
           const lines = text.split('\n').filter(l => l.trim());
@@ -287,7 +353,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               const name = getValue('name');
               const mobile = getValue('mobile');
               const eid = getValue('emirates id') || getValue('emirates_id') || `784${Math.random().toString().slice(2,14)}`;
-              const mandalam = getValue('mandalam') as Mandalam || Mandalam.BALUSSERY;
+              // Try to fuzzy match mandalam or default to Balussery
+              const rawMandalam = getValue('mandalam').toUpperCase();
+              let mandalam = Mandalam.BALUSSERY;
+              // Check if exact match exists in Enum
+              if (Object.values(Mandalam).includes(rawMandalam as Mandalam)) {
+                  mandalam = rawMandalam as Mandalam;
+              }
 
               if (name && mobile) {
                   const id = `user-${Date.now()}-${i}`;
@@ -312,7 +384,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               }
           }
           
-          await StorageService.addUsers(newUsers);
+          await StorageService.addUsers(newUsers, (count) => {
+              setImportProgress(count);
+          });
           alert(`Successfully imported ${newUsers.length} users.`);
           setImportFile(null);
       } catch (e) {
@@ -320,6 +394,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           alert("Import failed. Check file format.");
       } finally {
           setIsImporting(false);
+          setImportProgress(0);
       }
   };
 
@@ -334,7 +409,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           // 2. Reset Users
           const batchPromises = users.map(u => {
               if (u.role === Role.USER || u.role === Role.MANDALAM_ADMIN) {
-                 return onUpdateUser(u.id, { 
+                 return StorageService.updateUser(u.id, { 
                      paymentStatus: PaymentStatus.UNPAID,
                      paymentRemarks: ''
                  });
@@ -423,6 +498,120 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           />
       </div>
   );
+
+  // --- FULL USER DETAIL VIEW RENDERER ---
+  const renderUserDetailModal = () => {
+    if (!viewingUser) return null;
+
+    const getLabel = (id: string) => {
+        const q = questions.find(quest => quest.id === id);
+        return q ? q.label : id;
+    }
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="bg-primary px-6 py-4 flex justify-between items-center text-white">
+                     <div>
+                         <h3 className="text-lg font-bold">{viewingUser.fullName}</h3>
+                         <p className="text-xs opacity-80">{viewingUser.membershipNo}</p>
+                     </div>
+                     <button onClick={() => setViewingUser(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Core Info */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Status</p>
+                            <span className={`text-sm font-bold ${viewingUser.status === UserStatus.APPROVED ? 'text-emerald-600' : 'text-amber-600'}`}>{viewingUser.status}</span>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                             <p className="text-xs font-bold text-slate-500 uppercase">Payment</p>
+                             <span className={`text-sm font-bold ${viewingUser.paymentStatus === PaymentStatus.PAID ? 'text-emerald-600' : 'text-amber-600'}`}>{viewingUser.paymentStatus}</span>
+                        </div>
+                         <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Mobile</p>
+                            <p className="text-sm font-medium">{viewingUser.mobile}</p>
+                        </div>
+                         <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-bold text-slate-500 uppercase">WhatsApp</p>
+                            <p className="text-sm font-medium">{viewingUser.whatsapp}</p>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Email</p>
+                            <p className="text-sm font-medium">{viewingUser.email || '-'}</p>
+                        </div>
+                         <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Emirates ID</p>
+                            <p className="text-sm font-medium">{viewingUser.emiratesId}</p>
+                        </div>
+                    </div>
+                    
+                    {/* Location */}
+                    <div className="p-4 border border-slate-100 rounded-xl">
+                        <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-50 pb-2">Location</h4>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div><p className="text-xs font-bold text-slate-500 uppercase">Mandalam</p><p className="text-sm">{viewingUser.mandalam}</p></div>
+                            <div><p className="text-xs font-bold text-slate-500 uppercase">Emirate</p><p className="text-sm">{viewingUser.emirate}</p></div>
+                             <div className="col-span-2"><p className="text-xs font-bold text-slate-500 uppercase">Address (UAE)</p><p className="text-sm">{viewingUser.addressUAE || '-'}</p></div>
+                             <div className="col-span-2"><p className="text-xs font-bold text-slate-500 uppercase">Address (India)</p><p className="text-sm">{viewingUser.addressIndia || '-'}</p></div>
+                         </div>
+                    </div>
+
+                    {/* Extended Info */}
+                     <div className="p-4 border border-slate-100 rounded-xl">
+                        <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-50 pb-2">Family & References</h4>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div><p className="text-xs font-bold text-slate-500 uppercase">Nominee</p><p className="text-sm">{viewingUser.nominee || '-'}</p></div>
+                            <div><p className="text-xs font-bold text-slate-500 uppercase">Relation</p><p className="text-sm">{viewingUser.relation || '-'}</p></div>
+                            <div><p className="text-xs font-bold text-slate-500 uppercase">Recommended By</p><p className="text-sm">{viewingUser.recommendedBy || '-'}</p></div>
+                         </div>
+                    </div>
+
+                    {/* Memberships */}
+                    <div className="p-4 border border-slate-100 rounded-xl bg-blue-50/50">
+                        <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-blue-100 pb-2">Other Memberships</h4>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <p className="text-xs font-bold text-slate-500 uppercase">KMCC</p>
+                                <p className="text-sm font-medium">{viewingUser.isKMCCMember ? `Yes (${viewingUser.kmccNo || 'No No.'})` : 'No'}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-500 uppercase">Pratheeksha</p>
+                                <p className="text-sm font-medium">{viewingUser.isPratheekshaMember ? `Yes (${viewingUser.pratheekshaNo || 'No No.'})` : 'No'}</p>
+                            </div>
+                         </div>
+                    </div>
+
+                    {/* Custom Data */}
+                    {viewingUser.customData && Object.keys(viewingUser.customData).length > 0 && (
+                        <div className="p-4 border border-slate-100 rounded-xl">
+                             <h4 className="text-sm font-bold text-slate-800 mb-3 border-b border-slate-50 pb-2">Additional Info</h4>
+                             <div className="grid grid-cols-2 gap-4">
+                                {Object.entries(viewingUser.customData).map(([key, val]) => {
+                                     if(!val) return null;
+                                     const label = getLabel(key);
+                                     if (['email', 'mobile', 'emirates id', 'password'].includes(label.toLowerCase())) return null; 
+                                     return (
+                                         <div key={key}>
+                                            <p className="text-xs font-bold text-slate-500 uppercase">{label}</p>
+                                            <p className="text-sm text-slate-800">{String(val)}</p>
+                                         </div>
+                                     );
+                                })}
+                             </div>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+                    <button onClick={() => setViewingUser(null)} className="px-6 py-2 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300">Close</button>
+                </div>
+            </div>
+        </div>
+    )
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -517,8 +706,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                              </td>
                              <td className="px-6 py-4 text-slate-500">{user.registrationDate}</td>
                              <td className="px-6 py-4 text-right space-x-2">
-                                 <button onClick={() => handleApproveUser(user.id)} className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-200">Approve</button>
-                                 <button onClick={() => handleRejectUser(user.id)} className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200">Reject</button>
+                                 <button onClick={() => setViewingUser(user)} className="px-2 py-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg mr-2" title="View Details">
+                                     <Eye className="w-4 h-4" />
+                                 </button>
+                                 <button onClick={() => handleApproveUser(user.id)} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold shadow hover:bg-emerald-700 hover:scale-105 transition-all">
+                                    Approve User
+                                 </button>
+                                 <button onClick={() => handleRejectUser(user.id)} className="px-3 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50">
+                                    Reject
+                                 </button>
                              </td>
                          </tr>
                      ))}
@@ -554,18 +750,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                  <p className="text-xs text-slate-400">{user.mobile}</p>
                              </td>
                              <td className="px-6 py-4">
-                                 <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg max-w-md">
-                                     <p className="text-xs font-bold text-amber-800 uppercase mb-1">User Remarks</p>
-                                     <p className="text-sm text-slate-700 italic">"{user.paymentRemarks || 'No remarks provided'}"</p>
+                                 <div className="p-3 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg max-w-md shadow-sm">
+                                     <p className="text-xs font-bold text-amber-800 uppercase mb-1">Payment Remarks</p>
+                                     <p className="text-sm text-slate-800 font-medium">"{user.paymentRemarks || 'No remarks provided'}"</p>
                                  </div>
                              </td>
-                             <td className="px-6 py-4 text-right space-x-2">
-                                 <button onClick={() => handleApprovePayment(user.id)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-sm flex items-center gap-1 ml-auto">
-                                     <Check className="w-3 h-3" /> Mark Paid
-                                 </button>
-                                 <button onClick={() => handleRejectPayment(user.id)} className="px-3 py-1.5 bg-white border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50">
-                                     Reject
-                                 </button>
+                             <td className="px-6 py-4 text-right">
+                                 <div className="flex items-center justify-end gap-2">
+                                     <button onClick={() => setViewingUser(user)} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 flex items-center gap-1" title="View User Profile">
+                                         <Eye className="w-3 h-3" /> View
+                                     </button>
+                                     <button onClick={() => handleApprovePayment(user.id)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 shadow-sm flex items-center gap-1">
+                                         <Check className="w-3 h-3" /> Mark Paid
+                                     </button>
+                                     <button onClick={() => handleRejectPayment(user.id)} className="px-3 py-1.5 bg-white border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50">
+                                         Reject
+                                     </button>
+                                 </div>
                              </td>
                          </tr>
                      ))}
@@ -574,12 +775,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
          </div>
       )}
 
-      {/* --- PAYMENT SUBMISSIONS TAB (HISTORY) --- */}
+      {/* --- PAYMENT SUBMISSIONS TAB (HISTORY & APPROVALS) --- */}
       {activeTab === 'Payment Subs' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                <div className="p-4 border-b border-slate-100 bg-slate-50">
-                   <h3 className="font-bold text-slate-800 mb-2">Recent Payment Activity</h3>
-                   {renderSearchBar("Search history...")}
+                   <h3 className="font-bold text-slate-800 mb-2">Approved Payment History</h3>
+                   {renderSearchBar("Search payment history...")}
                </div>
                <table className="w-full text-left text-sm">
                    <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
@@ -588,24 +789,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                            <th className="px-6 py-3">Name</th>
                            <th className="px-6 py-3">Status</th>
                            <th className="px-6 py-3">Remarks</th>
+                           <th className="px-6 py-3 text-right">Actions</th>
                        </tr>
                    </thead>
                    <tbody className="divide-y divide-slate-100">
-                       {filteredList.filter(u => u.paymentStatus !== PaymentStatus.UNPAID).map(user => (
-                           <tr key={user.id}>
+                       {filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID).map(user => (
+                           <tr key={user.id} className="hover:bg-slate-50">
                                <td className="px-6 py-4 font-mono text-xs">{user.membershipNo}</td>
                                <td className="px-6 py-4 font-medium">
                                    {user.fullName}
                                    <div className="text-xs text-slate-400">{user.mobile}</div>
                                </td>
                                <td className="px-6 py-4">
-                                   <span className={`px-2 py-1 rounded text-xs font-bold ${user.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                   <span className={`px-2 py-1 rounded text-xs font-bold bg-emerald-100 text-emerald-700`}>
                                        {user.paymentStatus}
                                    </span>
                                </td>
                                <td className="px-6 py-4 text-slate-500 text-xs truncate max-w-xs">{user.paymentRemarks || '-'}</td>
+                               <td className="px-6 py-4 text-right">
+                                    <button 
+                                       onClick={() => handleRejectPayment(user.id)} 
+                                       className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 flex items-center gap-1 ml-auto"
+                                       title="Revert to Unpaid"
+                                    >
+                                       <X className="w-4 h-4" /> Revert
+                                   </button>
+                               </td>
                            </tr>
                        ))}
+                       {filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID).length === 0 && (
+                            <tr><td colSpan={5} className="p-8 text-center text-slate-400">No approved payment records found.</td></tr>
+                       )}
                    </tbody>
                </table>
           </div>
@@ -820,17 +1034,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                   {/* Cannot assign self */}
                                   {user.id !== currentUser.id && (
                                     <>
-                                        {/* If user is ALREADY Master Admin, don't show Assign buttons */}
+                                        {/* Buttons to Assign */}
+                                        {/* Only show 'Make All Access' if not already master admin */}
                                         {user.role !== Role.MASTER_ADMIN && (
-                                            <>
-                                                <button onClick={() => handleAssignAdmin(user, Role.MASTER_ADMIN)} className="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800">Make All Access Admin</button>
-                                                <button onClick={() => handleAssignAdmin(user, Role.MANDALAM_ADMIN)} className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50">Assign Mandalam Admin</button>
-                                                <button onClick={() => handleAssignAdmin(user, Role.CUSTOM_ADMIN)} className="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-200">Custom Admin</button>
-                                            </>
+                                            <button 
+                                                onClick={() => handleAssignAdmin(user, Role.MASTER_ADMIN)} 
+                                                className="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800"
+                                            >
+                                                Make All Access
+                                            </button>
                                         )}
-                                        {/* If user HAS a role (not plain USER), show Revoke */}
+                                        
+                                        <button 
+                                            onClick={() => handleAssignAdmin(user, Role.MANDALAM_ADMIN)} 
+                                            className="px-3 py-1 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50"
+                                        >
+                                            Assign Mandalam
+                                        </button>
+                                        <button 
+                                            onClick={() => handleAssignAdmin(user, Role.CUSTOM_ADMIN)} 
+                                            className="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-200"
+                                        >
+                                            Custom
+                                        </button>
+
+                                        {/* Explicit Revoke Button if they have any admin role */}
                                         {user.role !== Role.USER && (
-                                            <button onClick={() => handleAssignAdmin(user, Role.USER)} className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100">Revoke Admin</button>
+                                            <button 
+                                                onClick={() => handleAssignAdmin(user, Role.USER)} 
+                                                className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100"
+                                            >
+                                                Revoke
+                                            </button>
                                         )}
                                     </>
                                   )}
@@ -931,16 +1166,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           <div className="space-y-6">
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-bold text-slate-900">Registration Questions</h3>
-                      <button 
-                          onClick={() => {
-                              setQuestionForm({ type: FieldType.TEXT, required: true, order: questions.length + 1 });
-                              setIsQuestionModalOpen(true);
-                          }}
-                          className="px-4 py-2 bg-primary text-white font-bold rounded-lg text-sm hover:bg-primary-dark"
-                      >
-                          Add Question
-                      </button>
+                      <h3 className="font-bold text-slate-900">Registration Questions & Field Mapping</h3>
+                      <div className="flex gap-2">
+                          <button 
+                              onClick={async () => {
+                                  if(confirm("This will reset all questions to the default core list. Existing answers might lose context labels but data remains. Continue?")) {
+                                      await StorageService.seedDefaultQuestions();
+                                      setQuestions(await StorageService.getQuestions());
+                                      alert("Questions reset to default.");
+                                  }
+                              }}
+                              className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg text-sm hover:bg-slate-200 flex items-center gap-2"
+                          >
+                              <RefreshCw className="w-4 h-4" /> Reset Defaults
+                          </button>
+                          <button 
+                              onClick={() => {
+                                  setQuestionForm({ type: FieldType.TEXT, required: true, order: questions.length + 1, options: [], systemMapping: 'NONE' });
+                                  setIsQuestionModalOpen(true);
+                              }}
+                              className="px-4 py-2 bg-primary text-white font-bold rounded-lg text-sm hover:bg-primary-dark"
+                          >
+                              Add Question
+                          </button>
+                      </div>
                   </div>
 
                   <div className="space-y-3">
@@ -950,6 +1199,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                   <div className="flex items-center gap-2">
                                       <span className="font-bold text-slate-800">{q.label}</span>
                                       {q.required && <span className="text-red-500 text-xs font-bold">*</span>}
+                                      {q.systemMapping && q.systemMapping !== 'NONE' && (
+                                          <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide">
+                                              Maps to: {q.systemMapping}
+                                          </span>
+                                      )}
                                   </div>
                                   <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
                                       <span className="bg-slate-200 px-1.5 py-0.5 rounded">{q.type}</span>
@@ -969,8 +1223,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                   <button 
                                       onClick={async () => {
                                           if(confirm("Delete this question?")) {
-                                              await StorageService.deleteQuestion(q.id);
-                                              setQuestions(await StorageService.getQuestions());
+                                              try {
+                                                  await StorageService.deleteQuestion(q.id);
+                                                  const freshQuestions = await StorageService.getQuestions();
+                                                  setQuestions(freshQuestions);
+                                              } catch (e) {
+                                                  console.error(e);
+                                                  alert("Failed to delete question. See console.");
+                                              }
                                           }
                                       }}
                                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
@@ -988,82 +1248,134 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                       <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto">
                           <h3 className="text-lg font-bold mb-4">{questionForm.id ? 'Edit Question' : 'Add Question'}</h3>
+                          
                           <div className="space-y-4">
                               <div>
-                                  <label className="block text-xs font-bold text-slate-500 uppercase">Label</label>
+                                  <label className="text-xs font-bold text-slate-500 uppercase">Label</label>
                                   <input 
-                                      className="w-full p-2 border border-slate-200 rounded-lg"
+                                      type="text" 
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-sm"
                                       value={questionForm.label || ''}
-                                      onChange={e => setQuestionForm({...questionForm, label: e.target.value})}
+                                      onChange={(e) => setQuestionForm({...questionForm, label: e.target.value})}
                                   />
                               </div>
+
+                              <div>
+                                  <label className="text-xs font-bold text-slate-500 uppercase">System Field Mapping</label>
+                                  <p className="text-[10px] text-slate-400 mb-1">Links this question to a core user property (like Email or Password)</p>
+                                  <select 
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                      value={questionForm.systemMapping || 'NONE'}
+                                      onChange={(e) => setQuestionForm({...questionForm, systemMapping: e.target.value as any})}
+                                  >
+                                      {SYSTEM_FIELD_MAPPING.map(m => (
+                                          <option key={m.value} value={m.value}>{m.label}</option>
+                                      ))}
+                                  </select>
+                              </div>
+                              
                               <div className="grid grid-cols-2 gap-4">
                                   <div>
-                                      <label className="block text-xs font-bold text-slate-500 uppercase">Type</label>
+                                      <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
                                       <select 
-                                          className="w-full p-2 border border-slate-200 rounded-lg"
+                                          className="w-full p-2 border border-slate-200 rounded-lg text-sm"
                                           value={questionForm.type}
-                                          onChange={e => setQuestionForm({...questionForm, type: e.target.value as FieldType})}
+                                          onChange={(e) => setQuestionForm({...questionForm, type: e.target.value as FieldType})}
                                       >
                                           {Object.values(FieldType).map(t => <option key={t} value={t}>{t}</option>)}
                                       </select>
                                   </div>
                                   <div>
-                                      <label className="block text-xs font-bold text-slate-500 uppercase">Order</label>
+                                      <label className="text-xs font-bold text-slate-500 uppercase">Order</label>
                                       <input 
-                                          type="number"
-                                          className="w-full p-2 border border-slate-200 rounded-lg"
-                                          value={questionForm.order || 0}
-                                          onChange={e => setQuestionForm({...questionForm, order: parseInt(e.target.value)})}
+                                          type="number" 
+                                          className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                          value={questionForm.order}
+                                          onChange={(e) => setQuestionForm({...questionForm, order: Number(e.target.value)})}
                                       />
                                   </div>
                               </div>
                               
-                              {(questionForm.type === FieldType.DROPDOWN) && (
-                                  <div>
-                                      <label className="block text-xs font-bold text-slate-500 uppercase">Options (comma separated)</label>
-                                      <input 
-                                          className="w-full p-2 border border-slate-200 rounded-lg"
-                                          value={questionForm.options?.join(',') || ''}
-                                          onChange={e => setQuestionForm({...questionForm, options: e.target.value.split(',').map(s => s.trim())})}
-                                      />
+                              <div className="flex items-center gap-2">
+                                  <input 
+                                      type="checkbox" 
+                                      checked={questionForm.required}
+                                      onChange={(e) => setQuestionForm({...questionForm, required: e.target.checked})}
+                                  />
+                                  <label className="text-sm text-slate-700">Required Field?</label>
+                              </div>
+
+                              {/* Options Editor for Dropdown */}
+                              {questionForm.type === FieldType.DROPDOWN && (
+                                  <div className="p-3 border border-slate-100 rounded-lg bg-slate-50">
+                                      <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Dropdown Options</label>
+                                      <div className="flex gap-2 mb-2">
+                                          <input 
+                                              type="text" 
+                                              placeholder="New Option"
+                                              className="flex-1 p-2 border border-slate-200 rounded-lg text-sm"
+                                              value={newOption}
+                                              onChange={(e) => setNewOption(e.target.value)}
+                                          />
+                                          <button 
+                                              onClick={() => {
+                                                  if(newOption.trim()) {
+                                                      const currentOpts = questionForm.options || [];
+                                                      setQuestionForm({...questionForm, options: [...currentOpts, newOption.trim()]});
+                                                      setNewOption('');
+                                                  }
+                                              }}
+                                              className="px-3 bg-blue-600 text-white rounded-lg text-xs font-bold"
+                                          >
+                                              Add
+                                          </button>
+                                      </div>
+                                      <div className="space-y-1">
+                                          {(questionForm.options || []).map((opt, idx) => (
+                                              <div key={idx} className="flex justify-between items-center p-2 bg-white border border-slate-200 rounded text-sm">
+                                                  <span>{opt}</span>
+                                                  <button 
+                                                      onClick={() => {
+                                                          const opts = [...(questionForm.options || [])];
+                                                          opts.splice(idx, 1);
+                                                          setQuestionForm({...questionForm, options: opts});
+                                                      }}
+                                                      className="text-red-500"
+                                                  >
+                                                      <X className="w-3 h-3" />
+                                                  </button>
+                                              </div>
+                                          ))}
+                                      </div>
                                   </div>
                               )}
-
-                              <label className="flex items-center gap-2">
-                                  <input 
-                                      type="checkbox"
-                                      checked={questionForm.required || false}
-                                      onChange={e => setQuestionForm({...questionForm, required: e.target.checked})}
-                                  />
-                                  <span className="text-sm">Required Field</span>
-                              </label>
                           </div>
-                          
+
                           <div className="flex gap-2 mt-6">
-                              <button onClick={() => setIsQuestionModalOpen(false)} className="flex-1 py-2 bg-slate-100 rounded-lg font-bold text-slate-600">Cancel</button>
+                              <button onClick={() => setIsQuestionModalOpen(false)} className="flex-1 py-2 text-slate-600 font-bold bg-slate-100 rounded-lg">Cancel</button>
                               <button 
                                   onClick={async () => {
-                                      if (!questionForm.label) return alert("Label is required");
-                                      const q: RegistrationQuestion = {
-                                          id: questionForm.id || `q-${Date.now()}`,
-                                          label: questionForm.label,
-                                          type: questionForm.type || FieldType.TEXT,
-                                          required: questionForm.required || false,
-                                          order: questionForm.order || 0,
-                                          options: questionForm.options,
-                                          dependentOptions: questionForm.dependentOptions || {},
-                                          placeholder: questionForm.placeholder || '',
-                                          parentQuestionId: questionForm.parentQuestionId || ''
-                                      };
-                                      
-                                      await StorageService.saveQuestion(q);
-                                      setQuestions(await StorageService.getQuestions());
-                                      setIsQuestionModalOpen(false);
+                                      if(questionForm.label && questionForm.type) {
+                                          const q: RegistrationQuestion = {
+                                              id: questionForm.id || `q_${Date.now()}`,
+                                              label: questionForm.label,
+                                              type: questionForm.type,
+                                              required: questionForm.required || false,
+                                              order: questionForm.order || 0,
+                                              options: questionForm.options || [],
+                                              dependentOptions: questionForm.dependentOptions || {},
+                                              systemMapping: questionForm.systemMapping,
+                                              ...(questionForm.parentQuestionId ? { parentQuestionId: questionForm.parentQuestionId } : {}),
+                                              ...(questionForm.placeholder ? { placeholder: questionForm.placeholder } : {})
+                                          };
+                                          await StorageService.saveQuestion(q);
+                                          setQuestions(await StorageService.getQuestions());
+                                          setIsQuestionModalOpen(false);
+                                      }
                                   }}
-                                  className="flex-1 py-2 bg-primary text-white rounded-lg font-bold"
+                                  className="flex-1 py-2 bg-primary text-white font-bold rounded-lg"
                               >
-                                  Save
+                                  Save Question
                               </button>
                           </div>
                       </div>
@@ -1072,396 +1384,171 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* --- IMPORT USERS TAB --- */}
-      {activeTab === 'Import Users' && (
-          <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center space-y-6">
-              <div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto">
-                  <FileUp className="w-8 h-8" />
-              </div>
-              <div>
-                  <h3 className="text-xl font-bold text-slate-900">Bulk Import Members</h3>
-                  <p className="text-slate-500 mt-2">Upload a CSV file to add multiple members at once.</p>
-              </div>
+      {/* --- NEW YEAR TAB --- */}
+      {activeTab === 'New Year' && (
+          <div className="space-y-6">
+              <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center max-w-2xl mx-auto">
+                  <div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Calendar className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-900 mb-2">Fiscal Year Management</h3>
+                  <p className="text-slate-500 mb-8">Start a new fiscal year to reset payment statuses for all members. This action archives the current year's data.</p>
+                  
+                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 text-left mb-8">
+                      <h4 className="font-bold text-amber-800 text-sm mb-2 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4" /> Warning
+                      </h4>
+                      <ul className="list-disc list-inside text-xs text-amber-700 space-y-1">
+                          <li>All members will be marked as <strong>UNPAID</strong> for the new year.</li>
+                          <li>Current payment remarks will be cleared.</li>
+                          <li>Membership numbers will continue in sequence or reset based on policy.</li>
+                          <li>This action cannot be undone.</li>
+                      </ul>
+                  </div>
 
-              <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 hover:bg-slate-50 transition-colors relative">
-                  <input 
-                      type="file" 
-                      accept=".csv" 
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      onChange={(e) => setImportFile(e.target.files ? e.target.files[0] : null)}
-                  />
-                  {importFile ? (
-                      <div className="text-emerald-600 font-bold flex flex-col items-center gap-2">
-                          <CheckCircle2 className="w-8 h-8" />
-                          {importFile.name}
-                      </div>
-                  ) : (
-                      <div className="text-slate-400">
-                          <p>Drag and drop or click to select</p>
-                          <p className="text-xs mt-2">Supports .csv files only</p>
-                      </div>
-                  )}
-              </div>
-
-              <div className="flex gap-4 justify-center">
-                  <button onClick={handleDownloadSample} className="px-6 py-2 text-slate-600 font-bold text-sm bg-slate-100 rounded-lg hover:bg-slate-200 flex items-center gap-2">
-                      <Download className="w-4 h-4" /> Sample CSV
-                  </button>
                   <button 
-                      onClick={handleImportUsers}
-                      disabled={!importFile || isImporting}
-                      className="px-8 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark disabled:opacity-50"
+                      onClick={handleStartNewYear}
+                      className="px-8 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg shadow-slate-900/20 transition-all"
                   >
-                      {isImporting ? 'Importing...' : 'Start Import'}
+                      Start Fiscal Year {new Date().getFullYear() + 1}
                   </button>
               </div>
           </div>
       )}
+      
+      {/* --- USERS DATA & IMPORT TABS --- */}
+      {activeTab === 'Import Users' && (
+          <div className="max-w-xl mx-auto space-y-6">
+              <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm text-center">
+                  <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <FileUp className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Bulk Member Import</h3>
+                  <p className="text-slate-500 text-sm mb-6">Upload a CSV file to add multiple members at once.</p>
+                  
+                  <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 mb-6 hover:bg-slate-50 transition-colors">
+                      <input 
+                          type="file" 
+                          accept=".csv"
+                          onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-slate-500
+                            file:mr-4 file:py-2 file:px-4
+                            file:rounded-full file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-emerald-50 file:text-emerald-700
+                            hover:file:bg-emerald-100
+                          "
+                      />
+                  </div>
 
-      {/* --- NEW YEAR TAB --- */}
-      {activeTab === 'New Year' && (
-          <div className="max-w-3xl mx-auto space-y-8">
-              <div className="bg-white p-8 rounded-xl border border-red-100 shadow-sm">
-                  <div className="flex items-start gap-4">
-                      <div className="p-3 bg-red-50 text-red-600 rounded-lg">
-                          <RotateCcw className="w-6 h-6" />
+                  {isImporting && (
+                      <div className="mb-6">
+                          <div className="w-full bg-slate-100 rounded-full h-2.5 mb-2">
+                              <div className="bg-emerald-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (importProgress / 500) * 100)}%` }}></div>
+                          </div>
+                          <p className="text-xs text-slate-500 font-mono">Processing... {importProgress} records</p>
                       </div>
-                      <div>
-                          <h3 className="text-xl font-bold text-slate-900">Start New Fiscal Year</h3>
-                          <p className="text-slate-500 mt-2 leading-relaxed">
-                              This action will archive the current year's data and reset the payment status of all members to "UNPAID". 
-                              User accounts will remain active, but they will need to pay the membership fee for the new year.
-                          </p>
-                          <div className="mt-6 p-4 bg-red-50 text-red-800 rounded-lg text-sm font-medium border border-red-100">
-                              Warning: This action cannot be undone. Please ensure you have exported all necessary data before proceeding.
-                          </div>
-                          
-                          <div className="mt-8 flex items-center gap-4">
-                              <div className="flex-1 p-4 bg-slate-50 rounded-xl border border-slate-200 text-center">
-                                  <p className="text-xs font-bold text-slate-400 uppercase">Current Year</p>
-                                  <p className="text-3xl font-bold text-slate-900">{new Date().getFullYear()}</p>
-                              </div>
-                              <div className="text-slate-300">
-                                  <ArrowUp className="w-6 h-6 rotate-90" />
-                              </div>
-                              <div className="flex-1 p-4 bg-blue-50 rounded-xl border border-blue-100 text-center">
-                                  <p className="text-xs font-bold text-blue-400 uppercase">Next Year</p>
-                                  <p className="text-3xl font-bold text-blue-600">{new Date().getFullYear() + 1}</p>
-                              </div>
-                          </div>
+                  )}
 
-                          <button 
-                              onClick={handleStartNewYear}
-                              className="w-full mt-8 py-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-600/20 transition-all"
-                          >
-                              Confirm & Start New Year
-                          </button>
-                      </div>
+                  <div className="flex gap-4 justify-center">
+                      <button 
+                          onClick={handleDownloadSample}
+                          className="px-4 py-2 bg-white border border-slate-200 text-slate-600 font-bold rounded-lg text-sm hover:bg-slate-50"
+                      >
+                          Download Sample CSV
+                      </button>
+                      <button 
+                          onClick={handleImportUsers}
+                          disabled={!importFile || isImporting}
+                          className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                          {isImporting ? 'Importing...' : 'Start Import'}
+                      </button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* --- USERS OVERVIEW/DATA --- */}
-      {(activeTab === 'Users Overview' || activeTab === 'Users Data') && (
+      {/* --- USERS DATA / OVERVIEW --- */}
+      {(activeTab === 'Users Data' || activeTab === 'Users Overview') && (
            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-               {/* Filters */}
-               <div className="p-4 border-b border-slate-100 bg-slate-50 space-y-4">
-                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                       <h3 className="font-bold text-slate-800">{activeTab}</h3>
-                       <div className="flex gap-2">
-                            <select className="text-xs p-2 rounded border border-slate-200" value={filterMandalam} onChange={e => setFilterMandalam(e.target.value)}>
-                                <option>All Mandalams</option>
-                                {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
-                            </select>
-                            <select className="text-xs p-2 rounded border border-slate-200" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                                <option>All Status</option>
-                                {Object.values(UserStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                       </div>
-                   </div>
-                   {renderSearchBar("Search by name, mobile, emirates ID, reg no...")}
+               <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                   <h3 className="font-bold text-slate-800">{activeTab}</h3>
+                   {/* Add User Button only in Data tab */}
+                   {activeTab === 'Users Data' && <button className="text-xs bg-primary text-white px-3 py-1 rounded">Add User</button>}
                </div>
-               
+               {renderSearchBar()}
                <div className="overflow-x-auto">
-                   <table className="w-full text-left text-sm">
-                       <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
-                           <tr>
-                               <th className="px-6 py-3">User</th>
-                               <th className="px-6 py-3">Contact</th>
-                               <th className="px-6 py-3">Location</th>
-                               <th className="px-6 py-3">Status</th>
-                               {activeTab === 'Users Data' && (
-                                   <>
-                                     <th className="px-6 py-3">Role</th>
-                                     <th className="px-6 py-3">Emirates ID</th>
-                                     <th className="px-6 py-3">Actions</th>
-                                   </>
-                               )}
-                           </tr>
-                       </thead>
-                       <tbody className="divide-y divide-slate-100">
-                           {filteredList
-                              .filter(u => filterMandalam === 'All Mandalams' || u.mandalam === filterMandalam)
-                              .filter(u => filterStatus === 'All Status' || u.status === filterStatus)
-                              .map(user => (
-                               <tr key={user.id} className="hover:bg-slate-50">
-                                   <td className="px-6 py-4">
-                                       <p className="font-bold text-slate-900">{user.fullName}</p>
-                                       <p className="text-xs text-slate-500 font-mono">{user.membershipNo}</p>
-                                   </td>
-                                   <td className="px-6 py-4 text-slate-600">
-                                       <p>{user.mobile}</p>
-                                       <p className="text-xs opacity-70">{user.email}</p>
-                                   </td>
-                                   <td className="px-6 py-4">
-                                       <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">{user.mandalam}</span>
-                                   </td>
-                                   <td className="px-6 py-4">
-                                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${user.status === UserStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                           {user.status}
-                                       </span>
-                                   </td>
-                                   {activeTab === 'Users Data' && (
-                                       <>
-                                           <td className="px-6 py-4 text-xs font-bold uppercase text-slate-500">{user.role}</td>
-                                           <td className="px-6 py-4 text-xs font-mono">{user.emiratesId}</td>
-                                           <td className="px-6 py-4 flex gap-2">
-                                                <button 
-                                                   onClick={() => setViewingUser(user)}
-                                                   className="text-slate-500 hover:text-primary p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-                                                   title="View Full Details"
-                                               >
-                                                   <Eye className="w-4 h-4" />
-                                               </button>
-                                               <button 
-                                                   onClick={() => handleEditUser(user)}
-                                                   className="text-slate-500 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
-                                                   title="Edit User"
-                                               >
-                                                   <Edit className="w-4 h-4" />
-                                               </button>
-                                           </td>
-                                       </>
-                                   )}
-                               </tr>
-                           ))}
-                           {filteredList.length === 0 && (
-                               <tr><td colSpan={6} className="text-center py-8 text-slate-400">No users found.</td></tr>
-                           )}
-                       </tbody>
-                   </table>
+                 <table className="w-full text-left text-sm">
+                     <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
+                         <tr>
+                             <th className="px-6 py-3">Reg No</th>
+                             <th className="px-6 py-3">Name</th>
+                             <th className="px-6 py-3">Mobile</th>
+                             <th className="px-6 py-3">Mandalam</th>
+                             <th className="px-6 py-3">Status</th>
+                             <th className="px-6 py-3 text-right">Actions</th>
+                         </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                         {filteredList.map(u => (
+                             <tr key={u.id} className="hover:bg-slate-50">
+                                 <td className="px-6 py-4 font-mono text-xs font-bold text-slate-900">{u.membershipNo}</td>
+                                 <td className="px-6 py-4 font-bold">{u.fullName}</td>
+                                 <td className="px-6 py-4">{u.mobile}</td>
+                                 <td className="px-6 py-4">{u.mandalam}</td>
+                                 <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs ${u.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{u.status}</span></td>
+                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                     <button onClick={() => setViewingUser(u)} className="text-slate-500 hover:text-primary" title="View Details"><Eye className="w-4 h-4" /></button>
+                                     {activeTab === 'Users Data' && (
+                                         <button onClick={() => handleEditUser(u)} className="text-blue-600 hover:text-blue-800" title="Edit"><Edit className="w-4 h-4" /></button>
+                                     )}
+                                 </td>
+                             </tr>
+                         ))}
+                     </tbody>
+                 </table>
                </div>
            </div>
       )}
 
-      {/* --- FULL DETAIL VIEW MODAL --- */}
-      {viewingUser && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-                <div className="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-start">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-900">{viewingUser.fullName}</h2>
-                        <p className="text-slate-500 text-sm">Reg No: {viewingUser.membershipNo}</p>
-                    </div>
-                    <button onClick={() => setViewingUser(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Basic Info</h4>
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Mobile</p>
-                                    <p className="text-sm font-medium">{viewingUser.mobile}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">WhatsApp</p>
-                                    <p className="text-sm font-medium">{viewingUser.whatsapp || '-'}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Email</p>
-                                    <p className="text-sm font-medium break-all">{viewingUser.email || '-'}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Emirates ID</p>
-                                    <p className="text-sm font-medium">{viewingUser.emiratesId}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Membership & Location</h4>
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Mandalam</p>
-                                    <p className="text-sm font-medium">{viewingUser.mandalam}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Emirate</p>
-                                    <p className="text-sm font-medium">{viewingUser.emirate}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Registration Year</p>
-                                    <p className="text-sm font-medium">{viewingUser.registrationYear}</p>
-                                </div>
-                                <div className="p-3 bg-slate-50 rounded-lg">
-                                    <p className="text-xs text-slate-400 font-bold uppercase">Status</p>
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${viewingUser.status === UserStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                        {viewingUser.status}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-slate-100">
-                         <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Extended Details</h4>
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                             <div className="p-3 bg-slate-50 rounded-lg">
-                                 <p className="text-xs text-slate-400 font-bold uppercase">UAE Address</p>
-                                 <p className="text-sm text-slate-700 whitespace-pre-wrap">{viewingUser.addressUAE || 'N/A'}</p>
-                             </div>
-                             <div className="p-3 bg-slate-50 rounded-lg">
-                                 <p className="text-xs text-slate-400 font-bold uppercase">India Address</p>
-                                 <p className="text-sm text-slate-700 whitespace-pre-wrap">{viewingUser.addressIndia || 'N/A'}</p>
-                             </div>
-                             <div className="p-3 bg-slate-50 rounded-lg">
-                                 <p className="text-xs text-slate-400 font-bold uppercase">Nominee</p>
-                                 <p className="text-sm font-medium">{viewingUser.nominee || 'N/A'} {viewingUser.relation ? `(${viewingUser.relation})` : ''}</p>
-                             </div>
-                         </div>
-                    </div>
-
-                    {viewingUser.customData && Object.keys(viewingUser.customData).length > 0 && (
-                        <div className="space-y-4 pt-4 border-t border-slate-100">
-                            <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Additional Information</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {Object.entries(viewingUser.customData).map(([key, val]) => {
-                                    if(!val) return null;
-                                    // Try to find label from questions if possible, otherwise use ID
-                                    const qLabel = questions.find(q => q.id === key)?.label || key;
-                                    return (
-                                        <div key={key} className="p-3 bg-slate-50 rounded-lg">
-                                            <p className="text-xs text-slate-400 font-bold uppercase">{qLabel}</p>
-                                            <p className="text-sm font-medium">{val}</p>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                
-                <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                    <button 
-                        onClick={() => setViewingUser(null)}
-                        className="px-6 py-2 bg-slate-900 text-white font-bold text-sm rounded-lg hover:bg-slate-800"
-                    >
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* --- EDIT USER MODAL --- */}
+      {/* Edit User Modal */}
       {editingUser && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-                  <h3 className="text-lg font-bold text-slate-900">Edit User Profile</h3>
-                  
+              <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto">
+                  <h3 className="text-lg font-bold mb-4">Edit User</h3>
                   <div className="space-y-4">
+                      <div className="p-3 bg-slate-50 rounded text-xs text-slate-500 mb-4 border border-slate-100">
+                          Editing {editUserForm.fullName} ({editUserForm.membershipNo})
+                      </div>
+                      <div><label className="text-xs font-bold text-slate-500">Full Name</label><input className="w-full p-2 border rounded" value={editUserForm.fullName || ''} onChange={e => setEditUserForm({...editUserForm, fullName: e.target.value})} /></div>
+                      <div><label className="text-xs font-bold text-slate-500">Mobile</label><input className="w-full p-2 border rounded" value={editUserForm.mobile || ''} onChange={e => setEditUserForm({...editUserForm, mobile: e.target.value})} /></div>
+                      <div><label className="text-xs font-bold text-slate-500">Email</label><input className="w-full p-2 border rounded" value={editUserForm.email || ''} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} /></div>
+                      
+                      <div className="pt-2 border-t border-slate-100 mt-2">
+                          <label className="text-xs font-bold text-red-500 uppercase">Reset Password</label>
+                          <input type="text" className="w-full p-2 border rounded border-red-100 bg-red-50 text-red-900" placeholder="Enter new password" value={editUserForm.password || ''} onChange={e => setEditUserForm({...editUserForm, password: e.target.value})} />
+                      </div>
+                      
+                      <div><label className="text-xs font-bold text-slate-500">Emirates ID</label><input className="w-full p-2 border rounded" value={editUserForm.emiratesId || ''} onChange={e => setEditUserForm({...editUserForm, emiratesId: e.target.value})} /></div>
                       <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
-                          <input 
-                              className="w-full p-2 border border-slate-200 rounded-lg"
-                              value={editUserForm.fullName || ''}
-                              onChange={e => setEditUserForm({...editUserForm, fullName: e.target.value})}
-                          />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Mobile</label>
-                              <input 
-                                  className="w-full p-2 border border-slate-200 rounded-lg"
-                                  value={editUserForm.mobile || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, mobile: e.target.value})}
-                              />
-                          </div>
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Emirates ID</label>
-                              <input 
-                                  className="w-full p-2 border border-slate-200 rounded-lg"
-                                  value={editUserForm.emiratesId || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, emiratesId: e.target.value})}
-                              />
-                          </div>
-                      </div>
-                      <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Email</label>
-                          <input 
-                              className="w-full p-2 border border-slate-200 rounded-lg"
-                              value={editUserForm.email || ''}
-                              onChange={e => setEditUserForm({...editUserForm, email: e.target.value})}
-                          />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Mandalam</label>
-                              <select 
-                                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                                  value={editUserForm.mandalam || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, mandalam: e.target.value as Mandalam})}
-                              >
-                                  {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
-                              </select>
-                          </div>
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Emirate</label>
-                              <select 
-                                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                                  value={editUserForm.emirate || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, emirate: e.target.value as Emirate})}
-                              >
-                                  {EMIRATES.map(e => <option key={e} value={e}>{e}</option>)}
-                              </select>
-                          </div>
-                      </div>
-                       <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                              <select 
-                                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                                  value={editUserForm.status || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, status: e.target.value as UserStatus})}
-                              >
-                                  {Object.values(UserStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                          </div>
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 uppercase">Payment Status</label>
-                              <select 
-                                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
-                                  value={editUserForm.paymentStatus || ''}
-                                  onChange={e => setEditUserForm({...editUserForm, paymentStatus: e.target.value as PaymentStatus})}
-                              >
-                                  {Object.values(PaymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                          </div>
+                          <label className="text-xs font-bold text-slate-500">Mandalam</label>
+                          <select className="w-full p-2 border rounded" value={editUserForm.mandalam} onChange={e => setEditUserForm({...editUserForm, mandalam: e.target.value as Mandalam})}>
+                              {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
                       </div>
                   </div>
-
-                  <div className="flex gap-3 pt-4 border-t border-slate-100">
-                      <button onClick={() => setEditingUser(null)} className="flex-1 py-2 text-slate-600 font-bold text-sm bg-slate-100 hover:bg-slate-200 rounded-lg">Cancel</button>
-                      <button onClick={saveEditedUser} className="flex-1 py-2 bg-primary text-white font-bold text-sm rounded-lg hover:bg-primary-dark">Save Changes</button>
+                  <div className="flex gap-2 mt-6">
+                      <button onClick={() => setEditingUser(null)} className="flex-1 py-2 bg-slate-100 rounded">Cancel</button>
+                      <button onClick={saveEditedUser} className="flex-1 py-2 bg-primary text-white rounded">Save Changes</button>
                   </div>
               </div>
           </div>
       )}
+
+      {/* View User Modal */}
+      {renderUserDetailModal()}
+
     </div>
   );
 };

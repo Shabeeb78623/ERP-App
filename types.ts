@@ -1,4 +1,5 @@
 
+
 export enum Role {
   MASTER_ADMIN = 'MASTER_ADMIN',
   MANDALAM_ADMIN = 'MANDALAM_ADMIN',
@@ -27,16 +28,20 @@ export enum BenefitType {
 }
 
 export enum Mandalam {
-  KUNNAMANGALAM = 'KUNNAMANGALAM',
-  KUTTIADY = 'KUTTIADY',
-  NADAPURAM = 'NADAPURAM',
-  THIRUVAMBADY = 'THIRUVAMBADY',
-  QUILANDY = 'QUILANDY',
+  VADAKARA = 'VADAKARA',
+  THALASSERY = 'THALASSERY',
+  KOYILANDY = 'KOYILANDY',
   PERAMBRA = 'PERAMBRA',
-  KODUVALLY = 'KODUVALLY',
-  BEYPORE = 'BEYPORE',
   BALUSSERY = 'BALUSSERY',
+  NADAPURAM = 'NADAPURAM',
+  KUTTIADY = 'KUTTIADY',
+  THIRUVAMBADY = 'THIRUVAMBADY',
   ELATHUR = 'ELATHUR',
+  KUNNAMANGALAM = 'KUNNAMANGALAM',
+  CHELANNUR = 'CHELANNUR',
+  BEYPORE = 'BEYPORE',
+  MUKKAM = 'MUKKAM',
+  QUILANDY = 'QUILANDY', 
 }
 
 export enum Emirate {
@@ -54,7 +59,8 @@ export enum FieldType {
   NUMBER = 'NUMBER',
   DROPDOWN = 'DROPDOWN',
   DEPENDENT_DROPDOWN = 'DEPENDENT_DROPDOWN',
-  TEXTAREA = 'TEXTAREA'
+  TEXTAREA = 'TEXTAREA',
+  PASSWORD = 'PASSWORD' // Ensure Password type is available
 }
 
 export interface RegistrationQuestion {
@@ -62,12 +68,16 @@ export interface RegistrationQuestion {
   label: string;
   type: FieldType;
   options?: string[]; // For standard dropdowns
-  parentQuestionId?: string; // For dependent dropdowns
+  parentQuestionId?: string; // For dependent dropdowns or conditional visibility
   // Map parent value -> child options. e.g. { "Abu Dhabi": ["Mandalam1", "Mandalam2"] }
+  // OR for simple visibility: { "Yes": [] } (means show this question if parent is "Yes")
   dependentOptions?: Record<string, string[]>; 
   order: number;
   required: boolean;
   placeholder?: string;
+  
+  // New field to map this question to a core User property
+  systemMapping?: 'fullName' | 'email' | 'password' | 'mobile' | 'whatsapp' | 'emiratesId' | 'mandalam' | 'emirate' | 'addressUAE' | 'addressIndia' | 'nominee' | 'relation' | 'isKMCCMember' | 'kmccNo' | 'isPratheekshaMember' | 'pratheekshaNo' | 'recommendedBy' | 'NONE';
 }
 
 export interface User {

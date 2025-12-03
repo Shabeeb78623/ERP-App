@@ -123,7 +123,7 @@ const Layout: React.FC<LayoutProps> = ({
                     V
                  </div>
                  <h1 className="text-xl font-bold text-primary tracking-tight">
-                    Vadakara Forum <span className="text-slate-400 font-normal text-sm ml-2 hidden md:inline-block">| {viewMode === 'USER' ? 'Member Portal' : 'Administration'}</span>
+                    Vadakara NRI Forum <span className="text-slate-400 font-normal text-sm ml-2 hidden md:inline-block">| {viewMode === 'USER' ? 'Member Portal' : 'Administration'}</span>
                  </h1>
               </div>
               

@@ -28,13 +28,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       }
   }, [isRegistering]);
 
-  // Registration State
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
-
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onLogin(loginIdentifier.trim(), loginPassword.trim());
@@ -42,57 +35,70 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match!");
-      return;
-    }
-
-    const findAnswer = (labelPart: string) => {
-        const q = questions.find(q => q.label.toLowerCase().includes(labelPart));
-        return q ? customData[q.id] : '';
-    }
-
-    const fullName = findAnswer('name') || 'Unknown';
-    const mobile = findAnswer('mobile') || '0000000000';
-    const emiratesId = findAnswer('emirates id') || '000000000000000';
-    const email = findAnswer('email') || formData.email; 
-    const mandalam = (findAnswer('mandalam') as Mandalam) || Mandalam.BALUSSERY;
-    const emirate = (findAnswer('emirate') as Emirate) || Emirate.DUBAI;
-
-    const currentYear = new Date().getFullYear();
-    const newMembershipNo = await StorageService.generateNextMembershipNo(currentYear);
-
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      fullName: fullName,
-      email: email,
-      mobile: mobile,
-      whatsapp: findAnswer('whatsapp') || mobile,
-      emiratesId: emiratesId,
-      mandalam: mandalam,
-      emirate: emirate,
-      addressUAE: findAnswer('address uae') || '',
-      addressIndia: findAnswer('address india') || '',
-      nominee: findAnswer('nominee') || '',
-      relation: findAnswer('relation') || '',
-      status: UserStatus.PENDING,
-      paymentStatus: PaymentStatus.UNPAID,
-      role: Role.USER,
-      registrationYear: currentYear,
-      photoUrl: '',
-      membershipNo: newMembershipNo,
-      registrationDate: new Date().toLocaleDateString(),
-      password: formData.password,
-      isImported: false,
-      customData: customData 
+    
+    // Auto-map fields based on systemMapping
+    let newUser: Partial<User> = {
+        customData: {},
+        status: UserStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+        role: Role.USER,
+        photoUrl: '',
+        isImported: false
     };
+    
+    const currentYear = new Date().getFullYear();
+    newUser.registrationYear = currentYear;
+    newUser.membershipNo = await StorageService.generateNextMembershipNo(currentYear);
+    newUser.registrationDate = new Date().toLocaleDateString();
+    newUser.id = `user-${Date.now()}`;
 
-    onRegister(newUser);
+    // Loop through all questions to build User object
+    for (const q of questions) {
+        if (!shouldShowQuestion(q)) continue;
+        
+        const value = customData[q.id];
+        
+        // Validation check for Required fields
+        if (q.required && !value) {
+            alert(`Please fill the required field: ${q.label}`);
+            return;
+        }
+
+        if (q.systemMapping && q.systemMapping !== 'NONE') {
+            // Map to core user property
+            (newUser as any)[q.systemMapping] = value;
+            
+            // Special handling for booleans if needed (e.g. dropdown Yes/No -> boolean)
+            if (q.systemMapping.startsWith('is')) {
+                 (newUser as any)[q.systemMapping] = value === 'Yes';
+            }
+        } else {
+            // Save to custom data
+            if (newUser.customData) {
+                newUser.customData[q.id] = value;
+            }
+        }
+    }
+
+    // Default fallbacks if not mapped
+    if (!newUser.mandalam) newUser.mandalam = Mandalam.BALUSSERY;
+    if (!newUser.emirate) newUser.emirate = Emirate.DUBAI;
+    if (!newUser.mobile) newUser.mobile = '0000000000';
+    if (!newUser.emiratesId) newUser.emiratesId = `784${Date.now()}`;
+    
+    // Ensure we have a password
+    if (!newUser.password) {
+        alert("Password field is missing in configuration. Please contact admin.");
+        return;
+    }
+
+    onRegister(newUser as User);
   };
 
   const handleCustomChange = (questionId: string, value: string) => {
       setCustomData(prev => ({ ...prev, [questionId]: value }));
       
+      // If this question controls others, clear their values if the parent value changes
       const childQs = questions.filter(q => q.parentQuestionId === questionId);
       if (childQs.length > 0) {
           setCustomData(prev => {
@@ -105,11 +111,33 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       }
   };
 
+  const shouldShowQuestion = (q: RegistrationQuestion) => {
+      // If no parent, always show
+      if (!q.parentQuestionId) return true;
+
+      const parentValue = customData[q.parentQuestionId];
+      if (!parentValue) return false;
+
+      // Check specific dependency condition (e.g. only show if parent is 'Yes')
+      if (q.dependentOptions) {
+          // If the map has keys, it means we only show if parent value is one of those keys
+          const allowedParentValues = Object.keys(q.dependentOptions);
+          if (allowedParentValues.length > 0 && !allowedParentValues.includes(parentValue)) {
+              return false;
+          }
+      }
+
+      return true;
+  };
+
   const renderField = (q: RegistrationQuestion) => {
       const commonClasses = "w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary";
       
       if (q.type === FieldType.TEXT) {
           return <input required={q.required} type="text" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.PASSWORD) {
+          return <input required={q.required} type="password" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
       }
       if (q.type === FieldType.NUMBER) {
           return <input required={q.required} type="number" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
@@ -159,26 +187,16 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            {/* Dynamically Render Questions */}
-                           {questions.map(q => (
-                               <div key={q.id} className={q.type === FieldType.TEXTAREA ? "md:col-span-2" : ""}>
-                                   <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">{q.label} {q.required && '*'}</label>
-                                   {renderField(q)}
-                               </div>
-                           ))}
-                      </div>
-                      
-                      {/* Core Password Fields (Always Required) */}
-                      <div className="space-y-4 pt-4 border-t border-slate-100">
-                          <h3 className="text-sm font-bold text-slate-900">Security</h3>
-                           {/* Fallback Email if not in questions */}
-                          {!questions.some(q => q.label.toLowerCase().includes('email')) && (
-                              <input required type="email" placeholder="Email Address *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                          )}
+                           {questions.map(q => {
+                               if (!shouldShowQuestion(q)) return null;
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <input required type="password" placeholder="Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
-                              <input required type="password" placeholder="Confirm Password *" className="w-full px-4 py-2 border border-slate-300 rounded outline-none" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} />
-                          </div>
+                               return (
+                                   <div key={q.id} className={q.type === FieldType.TEXTAREA ? "md:col-span-2" : ""}>
+                                       <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">{q.label} {q.required && '*'}</label>
+                                       {renderField(q)}
+                                   </div>
+                               );
+                           })}
                       </div>
 
                       <button type="submit" disabled={isLoading || questions.length === 0} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
