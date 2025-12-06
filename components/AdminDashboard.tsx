@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification } from '../types';
 import { Search, Upload, Trash2, Eye, Plus, Shield, Calendar, UserPlus, Edit, Save, X, Filter, Check, ArrowUp, ArrowDown, CheckCircle2, XCircle, Wallet, Bell, LogOut, Send, ChevronDown, FileUp, RotateCcw, Download, UserCog, MoreHorizontal, RefreshCw, AlertCircle } from 'lucide-react';
@@ -360,7 +362,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               const eid = getValue('emirates id') || getValue('emirates_id') || `784${Math.random().toString().slice(2,14)}`;
               // Try to fuzzy match mandalam or default to Balussery
               const rawMandalam = getValue('mandalam').toUpperCase();
-              let mandalam = Mandalam.BALUSSERY;
+              let mandalam = Mandalam.VATAKARA;
               // Check if exact match exists in Enum
               if (Object.values(Mandalam).includes(rawMandalam as Mandalam)) {
                   mandalam = rawMandalam as Mandalam;
@@ -608,7 +610,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                      return (
                                          <div key={key}>
                                             <p className="text-xs font-bold text-slate-500 uppercase">{label}</p>
-                                            <p className="text-sm text-slate-800">{String(val)}</p>
+                                            <p className="text-sm text-slate-800 break-words">{String(val)}</p>
                                          </div>
                                      );
                                 })}
@@ -1275,6 +1277,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                       className="w-full p-2 border border-slate-200 rounded-lg text-sm"
                                       value={questionForm.label || ''}
                                       onChange={(e) => setQuestionForm({...questionForm, label: e.target.value})}
+                                  />
+                              </div>
+
+                              <div>
+                                  <label className="text-xs font-bold text-slate-500 uppercase">Placeholder / Helper Text</label>
+                                  <input 
+                                      type="text" 
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                                      value={questionForm.placeholder || ''}
+                                      onChange={(e) => setQuestionForm({...questionForm, placeholder: e.target.value})}
                                   />
                               </div>
 

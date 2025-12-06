@@ -28,20 +28,14 @@ export enum BenefitType {
 }
 
 export enum Mandalam {
-  VADAKARA = 'VADAKARA',
-  THALASSERY = 'THALASSERY',
-  KOYILANDY = 'KOYILANDY',
-  PERAMBRA = 'PERAMBRA',
-  BALUSSERY = 'BALUSSERY',
-  NADAPURAM = 'NADAPURAM',
-  KUTTIADY = 'KUTTIADY',
-  THIRUVAMBADY = 'THIRUVAMBADY',
-  ELATHUR = 'ELATHUR',
-  KUNNAMANGALAM = 'KUNNAMANGALAM',
-  CHELANNUR = 'CHELANNUR',
-  BEYPORE = 'BEYPORE',
-  MUKKAM = 'MUKKAM',
-  QUILANDY = 'QUILANDY', 
+  THALASSERY = 'Thalassery',
+  KUTHUPARAMBA = 'Kuthuparamba',
+  VATAKARA = 'Vatakara',
+  KUTTIADY = 'Kuttiady',
+  NADAPURAM = 'Nadapuram',
+  KOYILANDY = 'Koyilandy',
+  PERAMBRA = 'Perambra',
+  MAHE = 'Mahe'
 }
 
 export enum Emirate {
@@ -60,7 +54,9 @@ export enum FieldType {
   DROPDOWN = 'DROPDOWN',
   DEPENDENT_DROPDOWN = 'DEPENDENT_DROPDOWN',
   TEXTAREA = 'TEXTAREA',
-  PASSWORD = 'PASSWORD' // Ensure Password type is available
+  PASSWORD = 'PASSWORD',
+  DATE = 'DATE',
+  FILE = 'FILE'
 }
 
 export interface RegistrationQuestion {

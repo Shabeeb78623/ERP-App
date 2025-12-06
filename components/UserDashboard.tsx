@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
 import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
@@ -83,7 +85,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          <div className="p-5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
                              <div>
                                  <p className="text-sm text-slate-500">Annual Fee ({user.registrationYear})</p>
-                                 <p className="text-2xl font-bold text-slate-900">AED 60.00</p>
+                                 <p className="text-2xl font-bold text-slate-900">AED 25.00</p>
                              </div>
                              <span className="px-3 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">DUE</span>
                          </div>
@@ -93,7 +95,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                              <p className="text-xs text-slate-400">Please pay via bank transfer or to your Mandalam admin, then enter the details here.</p>
                              <textarea 
                                 className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-primary focus:bg-white transition-all resize-none h-24 text-sm"
-                                placeholder="E.g. Paid AED 60 via Bank Transfer Ref: 12345678"
+                                placeholder="E.g. Paid AED 25 via Bank Transfer Ref: 12345678"
                                 value={paymentRemarks}
                                 onChange={(e) => setPaymentRemarks(e.target.value)}
                              />
@@ -181,7 +183,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          return (
                              <div key={key} className="p-3 bg-slate-50 rounded-lg">
                                  <p className="text-xs text-slate-400 uppercase font-bold">{label}</p>
-                                 <p className="text-sm font-medium text-slate-900">{val}</p>
+                                 <p className="text-sm font-medium text-slate-900 break-words">{val}</p>
                              </div>
                          )
                      })}

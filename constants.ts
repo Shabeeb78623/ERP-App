@@ -1,21 +1,16 @@
 
+
 import { Mandalam, Emirate, BenefitType } from './types';
 
 export const MANDALAMS = [
-    "VADAKARA",
-    "THALASSERY",
-    "KOYILANDY",
-    "PERAMBRA",
-    "BALUSSERY",
-    "NADAPURAM",
-    "KUTTIADY",
-    "THIRUVAMBADY",
-    "ELATHUR",
-    "KUNNAMANGALAM",
-    "CHELANNUR",
-    "BEYPORE",
-    "MUKKAM",
-    "QUILANDY"
+    "Thalassery",
+    "Kuthuparamba",
+    "Vatakara",
+    "Kuttiady",
+    "Nadapuram",
+    "Koyilandy",
+    "Perambra",
+    "Mahe"
 ];
 
 export const EMIRATES = Object.values(Emirate);

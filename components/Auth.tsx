@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { Mandalam, Emirate, Role, UserStatus, PaymentStatus, User, RegistrationQuestion, FieldType } from '../types';
@@ -21,6 +22,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   // Dynamic Questions State
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
   const [customData, setCustomData] = useState<Record<string, string>>({});
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   useEffect(() => {
       if(isRegistering) {
@@ -42,7 +44,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
         status: UserStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
         role: Role.USER,
-        photoUrl: '',
+        photoUrl: photoPreview || '',
         isImported: false
     };
     
@@ -59,7 +61,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
         const value = customData[q.id];
         
         // Validation check for Required fields
-        if (q.required && !value) {
+        if (q.required && !value && q.type !== FieldType.FILE) {
             alert(`Please fill the required field: ${q.label}`);
             return;
         }
@@ -70,7 +72,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
             
             // Special handling for booleans if needed (e.g. dropdown Yes/No -> boolean)
             if (q.systemMapping.startsWith('is')) {
-                 (newUser as any)[q.systemMapping] = value === 'Yes';
+                 (newUser as any)[q.systemMapping] = value === 'Yes' || value === 'YES';
             }
         } else {
             // Save to custom data
@@ -81,7 +83,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
     }
 
     // Default fallbacks if not mapped
-    if (!newUser.mandalam) newUser.mandalam = Mandalam.BALUSSERY;
+    if (!newUser.mandalam) newUser.mandalam = Mandalam.VATAKARA;
     if (!newUser.emirate) newUser.emirate = Emirate.DUBAI;
     if (!newUser.mobile) newUser.mobile = '0000000000';
     if (!newUser.emiratesId) newUser.emiratesId = `784${Date.now()}`;
@@ -108,6 +110,23 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
               });
               return newState;
           });
+      }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, questionId: string) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          if (file.size > 1024 * 1024) { // 1MB limit
+              alert("File size exceeds 1MB");
+              return;
+          }
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              const base64 = reader.result as string;
+              setPhotoPreview(base64);
+              handleCustomChange(questionId, "File Uploaded"); // Just mark as uploaded in customData
+          };
+          reader.readAsDataURL(file);
       }
   };
 
@@ -141,6 +160,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       }
       if (q.type === FieldType.NUMBER) {
           return <input required={q.required} type="number" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.DATE) {
+          return <input required={q.required} type="date" className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      }
+      if (q.type === FieldType.FILE) {
+          return (
+            <div>
+                <input required={q.required} type="file" accept="image/*,application/pdf" className={commonClasses} onChange={e => handleFileUpload(e, q.id)} />
+                <p className="text-[10px] text-slate-500 mt-1">{q.placeholder}</p>
+            </div>
+          );
       }
       if (q.type === FieldType.TEXTAREA) {
           return <textarea required={q.required} placeholder={q.placeholder || q.label} className={`${commonClasses} h-20 resize-none`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;

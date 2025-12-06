@@ -1,4 +1,5 @@
 
+
 import { db } from './firebase';
 import { 
     collection, 
@@ -25,11 +26,11 @@ const QUESTIONS_COLLECTION = 'questions';
 const ADMIN_USER: User = {
   id: 'admin-master',
   fullName: 'Shabeeb',
-  email: 'shabeeb@vadakara.com', // Added mock email
+  email: 'shabeeb@vadakara.com', 
   mobile: '0500000000',
   whatsapp: '0500000000',
   emiratesId: '784000000000000',
-  mandalam: Mandalam.BALUSSERY,
+  mandalam: Mandalam.VATAKARA,
   emirate: Emirate.DUBAI,
   status: UserStatus.APPROVED,
   paymentStatus: PaymentStatus.PAID,
@@ -200,45 +201,92 @@ export const StorageService = {
       await Promise.all(deletePromises);
 
       const defaultQuestions: RegistrationQuestion[] = [
-          { id: 'q_fullname', label: 'Full Name', type: FieldType.TEXT, required: true, order: 1, systemMapping: 'fullName' },
-          { id: 'q_mobile', label: 'Mobile Number', type: FieldType.TEXT, required: true, order: 2, systemMapping: 'mobile' },
-          { id: 'q_whatsapp', label: 'WhatsApp Number', type: FieldType.TEXT, required: true, order: 3, systemMapping: 'whatsapp' },
-          { id: 'q_email', label: 'Email Address', type: FieldType.TEXT, required: true, order: 4, systemMapping: 'email' },
-          { id: 'q_pass', label: 'Password', type: FieldType.PASSWORD, required: true, order: 5, systemMapping: 'password' },
-          { id: 'q_emirate', label: 'Emirate', type: FieldType.DROPDOWN, required: true, order: 6, options: EMIRATES, systemMapping: 'emirate' },
-          { id: 'q_mandalam', label: 'Mandalam', type: FieldType.DROPDOWN, required: true, order: 7, options: MANDALAMS, systemMapping: 'mandalam' },
-          { id: 'q_nominee', label: 'Nominee Name', type: FieldType.TEXT, required: true, order: 8, systemMapping: 'nominee' },
-          { id: 'q_relation', label: 'Relation to Nominee', type: FieldType.TEXT, required: true, order: 9, systemMapping: 'relation' },
-          { id: 'q_address_uae', label: 'Address (UAE)', type: FieldType.TEXTAREA, required: true, order: 10, systemMapping: 'addressUAE' },
-          { id: 'q_address_india', label: 'Address (India)', type: FieldType.TEXTAREA, required: true, order: 11, systemMapping: 'addressIndia' },
+          // 1. Name in Full
+          { id: 'q_fullname', label: 'Name in Full (As per Passport)', type: FieldType.TEXT, required: true, order: 1, systemMapping: 'fullName' },
           
-          // Conditional Logic: KMCC
-          { id: 'q_kmcc_member', label: 'KMCC Member?', type: FieldType.DROPDOWN, required: true, order: 12, options: ['Yes', 'No'], systemMapping: 'isKMCCMember' },
+          // 2. Phone Number
+          { id: 'q_mobile', label: 'Phone Number', type: FieldType.TEXT, required: true, order: 2, systemMapping: 'mobile' },
+          
+          // 3. WhatsApp Number
+          { id: 'q_whatsapp', label: 'WhatsApp Number (With Country Code)', type: FieldType.TEXT, required: true, order: 3, systemMapping: 'whatsapp' },
+          
+          // 4. Email
+          { id: 'q_email', label: 'Email', type: FieldType.TEXT, required: true, order: 4, systemMapping: 'email' },
+          
+          // SYSTEM: Password Field (Required for Auth, though not explicitly asked in UI list, it must exist)
+          { id: 'q_password', label: 'Password', type: FieldType.PASSWORD, required: true, order: 5, systemMapping: 'password' },
+          
+          // 5. Age
+          { id: 'q_age', label: 'Age', type: FieldType.NUMBER, required: true, order: 6 },
+          
+          // 6. Date of Birth
+          { id: 'q_dob', label: 'Date of Birth', type: FieldType.DATE, required: true, order: 7, placeholder: 'Calendar' },
+          
+          // 7. Place of Birth
+          { id: 'q_pob', label: 'Place of Birth', type: FieldType.TEXT, required: true, order: 8 },
+          
+          // 8. Marital Status
+          { id: 'q_marital', label: 'Marital Status', type: FieldType.DROPDOWN, required: true, order: 9, options: ['Single', 'Married'] },
+          
+          // 9. Number of Children
+          { id: 'q_children', label: 'Number of Children', type: FieldType.NUMBER, required: false, order: 10 },
+
+          // 10. Address in UAE
+          { id: 'q_address_uae', label: 'Address in UAE', type: FieldType.TEXTAREA, required: true, order: 11, systemMapping: 'addressUAE' },
+          
+          // 11. Family Residence in UAE
+          { id: 'q_family_uae', label: 'Family Residence in UAE', type: FieldType.DROPDOWN, required: true, order: 12, options: ['Yes', 'No'] },
+          
+          // 12. If Yes: Wife’s Number
           { 
-              id: 'q_kmcc_no', 
-              label: 'KMCC Membership Number', 
+              id: 'q_wife_no', 
+              label: 'If Yes: Wife’s Number for "VNRI Vanitha Vedi"', 
               type: FieldType.TEXT, 
               required: false, 
-              order: 13, 
-              parentQuestionId: 'q_kmcc_member', 
-              dependentOptions: {'Yes': []},
-              systemMapping: 'kmccNo'
+              order: 13,
+              parentQuestionId: 'q_family_uae',
+              dependentOptions: { 'Yes': [] } 
           },
           
-          // Conditional Logic: Pratheeksha
-          { id: 'q_pratheeksha_member', label: 'Pratheeksha Member?', type: FieldType.DROPDOWN, required: true, order: 14, options: ['Yes', 'No'], systemMapping: 'isPratheekshaMember' },
+          // 13. Permanent Address in India
+          { id: 'q_address_india', label: 'Permanent Address in India', type: FieldType.TEXTAREA, required: true, order: 14, systemMapping: 'addressIndia' },
+
+          // 14. Educational Qualification
+          { id: 'q_qualification', label: 'Educational Qualification', type: FieldType.TEXT, required: false, order: 15 },
+          
+          // 15. Profession
+          { id: 'q_profession', label: 'Profession', type: FieldType.TEXT, required: false, order: 16 },
+
+          // 16. Nominee Name
+          { id: 'q_nominee', label: 'Nominee Name', type: FieldType.TEXT, required: false, order: 17, systemMapping: 'nominee' },
+          
+          // 17. Nominee Relation
           { 
-              id: 'q_pratheeksha_no', 
-              label: 'Pratheeksha Membership number', 
-              type: FieldType.TEXT, 
+              id: 'q_relation', 
+              label: 'Nominee Relation', 
+              type: FieldType.DROPDOWN, 
               required: false, 
-              order: 15, 
-              parentQuestionId: 'q_pratheeksha_member', 
-              dependentOptions: {'Yes': []},
-              systemMapping: 'pratheekshaNo'
+              order: 18, 
+              options: ['Father', 'Son', 'Daughter', 'Mother', 'Wife', 'Husband'], 
+              systemMapping: 'relation' 
           },
-          
-          { id: 'q_recommended', label: 'Recommended By', type: FieldType.TEXT, required: false, order: 16, systemMapping: 'recommendedBy' },
+
+          // 18. Photo
+          { id: 'q_photo', label: 'Photo (Max 1MB)', type: FieldType.FILE, required: false, order: 19, placeholder: 'Upload PDF, drawing, or image' },
+
+          // 19. Assembly Constituency (Mandalam)
+          { 
+              id: 'q_mandalam', 
+              label: 'Assembly Constituency', 
+              type: FieldType.DROPDOWN, 
+              required: true, 
+              order: 20, 
+              options: MANDALAMS, 
+              systemMapping: 'mandalam' 
+          },
+
+          // 20. Recommended By
+          { id: 'q_recommended', label: 'Recommended By', type: FieldType.TEXT, required: false, order: 21, systemMapping: 'recommendedBy' },
       ];
 
       const batch = writeBatch(db);

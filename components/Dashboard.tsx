@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 import { 
   Users, 
@@ -28,7 +30,7 @@ const Dashboard: React.FC<DashboardProps> = ({ users }) => {
   const totalUsers = users.length;
   const paidUsers = users.filter(u => u.paymentStatus === PaymentStatus.PAID).length;
   const pendingApproval = users.filter(u => u.status === UserStatus.PENDING).length;
-  const totalRevenue = paidUsers * 60; // Mock revenue calculation
+  const totalRevenue = paidUsers * 25; // 25 AED per user
 
   const statusData = [
     { name: 'Active', value: users.filter(u => u.status === UserStatus.APPROVED).length, color: '#004e92' }, // Blue
