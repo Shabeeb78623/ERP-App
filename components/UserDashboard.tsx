@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
 import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';

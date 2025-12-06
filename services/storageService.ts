@@ -44,6 +44,31 @@ const ADMIN_USER: User = {
   password: 'ShabeeB@2025'
 };
 
+// Helper function for batched deletions to prevent "Write stream exhausted" errors
+const deleteCollectionInBatches = async (collectionName: string) => {
+    const colRef = collection(db, collectionName);
+    const snapshot = await getDocs(colRef);
+    
+    if (snapshot.empty) return;
+
+    const batchSize = 400; // Safe limit below 500
+    const docs = snapshot.docs;
+    
+    // Process in chunks
+    for (let i = 0; i < docs.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = docs.slice(i, i + batchSize);
+        
+        chunk.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        
+        await batch.commit();
+        // Small delay to allow stream to clear
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+};
+
 export const StorageService = {
   
   // --- REAL-TIME SUBSCRIPTIONS ---
@@ -125,7 +150,8 @@ export const StorageService = {
 
   addUsers: async (newUsers: User[], onProgress?: (count: number) => void): Promise<User[]> => {
     // Firestore batched writes (max 500 per batch)
-    const batchSize = 500;
+    // Reducing to 400 for safety against "Write stream exhausted"
+    const batchSize = 400;
     let processed = 0;
 
     for (let i = 0; i < newUsers.length; i += batchSize) {
@@ -137,8 +163,8 @@ export const StorageService = {
         });
         await batch.commit();
         
-        // Add a small delay to prevent rate limiting and ensure UI updates
-        await new Promise(resolve => setTimeout(resolve, 50)); 
+        // Add a delay to prevent rate limiting and ensure UI updates
+        await new Promise(resolve => setTimeout(resolve, 100)); 
         
         processed += chunk.length;
         if (onProgress) onProgress(processed);
@@ -198,9 +224,7 @@ export const StorageService = {
 
   seedDefaultQuestions: async (): Promise<void> => {
       // First, delete ALL existing questions to prevent duplicates or stale data
-      const snapshot = await getDocs(collection(db, QUESTIONS_COLLECTION));
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
+      await deleteCollectionInBatches(QUESTIONS_COLLECTION);
 
       const defaultQuestions: RegistrationQuestion[] = [
           // 1. Name in Full
@@ -215,7 +239,7 @@ export const StorageService = {
           // 4. Email
           { id: 'q_email', label: 'Email', type: FieldType.TEXT, required: true, order: 4, systemMapping: 'email' },
           
-          // SYSTEM: Password Field (Required for Auth, though not explicitly asked in UI list, it must exist)
+          // SYSTEM: Password Field (Required for Auth)
           { id: 'q_password', label: 'Password', type: FieldType.PASSWORD, required: true, order: 5, systemMapping: 'password' },
           
           // 5. Age
@@ -273,8 +297,7 @@ export const StorageService = {
               systemMapping: 'relation' 
           },
 
-          // 18. Photo
-          { id: 'q_photo', label: 'Photo (Max 1MB)', type: FieldType.FILE, required: false, order: 19, placeholder: 'Upload PDF, drawing, or image' },
+          // REMOVED PHOTO UPLOAD QUESTION AS PER REQUEST
 
           // 19. Assembly Constituency (Mandalam)
           { 
@@ -375,12 +398,9 @@ export const StorageService = {
   resetDatabase: async (): Promise<void> => {
       const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION];
       
-      // 1. Delete all documents in all collections
+      // 1. Delete all documents in all collections using batched deletion
       for (const colName of collections) {
-          const q = query(collection(db, colName));
-          const snapshot = await getDocs(q);
-          const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-          await Promise.all(deletePromises);
+          await deleteCollectionInBatches(colName);
       }
 
       // 2. IMPORTANT: Re-create the Master Admin "Shabeeb" immediately
