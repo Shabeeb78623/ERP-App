@@ -24,10 +24,10 @@ const QUESTIONS_COLLECTION = 'questions';
 // Master Admin Fallback
 const ADMIN_USER: User = {
   id: 'admin-master',
-  fullName: 'System Administrator',
-  email: 'admin',
-  mobile: '0000000000',
-  whatsapp: '0000000000',
+  fullName: 'Shabeeb',
+  email: 'shabeeb@vadakara.com', // Added mock email
+  mobile: '0500000000',
+  whatsapp: '0500000000',
   emiratesId: '784000000000000',
   mandalam: Mandalam.BALUSSERY,
   emirate: Emirate.DUBAI,
@@ -38,7 +38,7 @@ const ADMIN_USER: User = {
   photoUrl: '',
   membershipNo: 'ADMIN001',
   registrationDate: new Date().toLocaleDateString(),
-  password: 'admin123'
+  password: 'ShabeeB@2025'
 };
 
 export const StorageService = {
@@ -48,8 +48,8 @@ export const StorageService = {
       const q = query(collection(db, USERS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
           const users = snapshot.docs.map(doc => doc.data() as User);
-          // Ensure Admin always exists in the stream
-          if (!users.find(u => u.role === Role.MASTER_ADMIN)) {
+          // Ensure Admin always exists in the stream if not found (fallback)
+          if (!users.find(u => u.id === ADMIN_USER.id)) {
               callback([ADMIN_USER, ...users]);
           } else {
               callback(users);
@@ -80,7 +80,7 @@ export const StorageService = {
     try {
         const snapshot = await getDocs(collection(db, USERS_COLLECTION));
         const users = snapshot.docs.map(doc => doc.data() as User);
-        if (!users.find(u => u.role === Role.MASTER_ADMIN)) {
+        if (!users.find(u => u.id === ADMIN_USER.id)) {
             return [ADMIN_USER, ...users];
         }
         return users;
@@ -94,6 +94,12 @@ export const StorageService = {
      const cleanId = identifier.trim().toLowerCase();
      const users = await StorageService.getUsers();
      
+     // Case insensitive check for admin username 'Shabeeb'
+     if (cleanId === 'shabeeb') {
+         const admin = users.find(u => u.role === Role.MASTER_ADMIN);
+         return admin || ADMIN_USER;
+     }
+
      return users.find(u => 
         (u.email && u.email.toLowerCase() === cleanId) || 
         (u.mobile && u.mobile.trim() === cleanId)
@@ -139,7 +145,8 @@ export const StorageService = {
 
   updateUser: async (userId: string, updates: Partial<User>): Promise<void> => {
     const userRef = doc(db, USERS_COLLECTION, userId);
-    await updateDoc(userRef, updates);
+    // Use setDoc with merge:true to create if missing (safety for admin user) or update if exists
+    await setDoc(userRef, updates, { merge: true });
   },
 
   // --- UTILS ---
@@ -187,6 +194,11 @@ export const StorageService = {
   },
 
   seedDefaultQuestions: async (): Promise<void> => {
+      // First, delete ALL existing questions to prevent duplicates or stale data
+      const snapshot = await getDocs(collection(db, QUESTIONS_COLLECTION));
+      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+
       const defaultQuestions: RegistrationQuestion[] = [
           { id: 'q_fullname', label: 'Full Name', type: FieldType.TEXT, required: true, order: 1, systemMapping: 'fullName' },
           { id: 'q_mobile', label: 'Mobile Number', type: FieldType.TEXT, required: true, order: 2, systemMapping: 'mobile' },
@@ -294,11 +306,15 @@ export const StorageService = {
   resetDatabase: async (): Promise<void> => {
       const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION];
       
+      // 1. Delete all documents in all collections
       for (const colName of collections) {
           const q = query(collection(db, colName));
           const snapshot = await getDocs(q);
           const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
           await Promise.all(deletePromises);
       }
+
+      // 2. IMPORTANT: Re-create the Master Admin "Shabeeb" immediately
+      await setDoc(doc(db, USERS_COLLECTION, ADMIN_USER.id), ADMIN_USER);
   }
 };

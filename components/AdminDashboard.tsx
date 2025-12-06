@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification } from '../types';
 import { Search, Upload, Trash2, Eye, Plus, Shield, Calendar, UserPlus, Edit, Save, X, Filter, Check, ArrowUp, ArrowDown, CheckCircle2, XCircle, Wallet, Bell, LogOut, Send, ChevronDown, FileUp, RotateCcw, Download, UserCog, MoreHorizontal, RefreshCw, AlertCircle } from 'lucide-react';
@@ -153,7 +152,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const handleApproveUser = async (id: string) => {
       if(confirm("Approve this user?")) {
           try {
-              await StorageService.updateUser(id, { status: UserStatus.APPROVED });
+              await StorageService.updateUser(id, { 
+                  status: UserStatus.APPROVED,
+                  approvedBy: currentUser.fullName,
+                  approvedAt: new Date().toLocaleDateString()
+              });
           } catch(e) {
               alert("Failed to approve user.");
               console.error(e);
@@ -177,7 +180,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           try {
               await StorageService.updateUser(id, { 
                   paymentStatus: PaymentStatus.PAID, 
-                  status: UserStatus.APPROVED 
+                  status: UserStatus.APPROVED,
+                  approvedBy: currentUser.fullName,
+                  approvedAt: new Date().toLocaleDateString()
               });
               alert("Payment approved and user status updated.");
           } catch (error) {
@@ -276,7 +281,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   alert(`Successfully executed: ${action}`);
               } catch (error) {
                   console.error(error);
-                  alert("Failed to update admin role.");
+                  alert("Failed to update admin role. Check console for details.");
               }
           }
       }
@@ -379,7 +384,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                       membershipNo: await StorageService.generateNextMembershipNo(currentYear),
                       registrationDate: new Date().toLocaleDateString(),
                       isImported: true,
-                      password: eid // Set default password as Emirates ID
+                      password: eid, // Set default password as Emirates ID
+                      approvedBy: currentUser.fullName, // Log importing admin as approver
+                      approvedAt: new Date().toLocaleDateString()
                   });
               }
           }
@@ -525,6 +532,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                         <div className="p-3 bg-slate-50 rounded-lg">
                             <p className="text-xs font-bold text-slate-500 uppercase">Status</p>
                             <span className={`text-sm font-bold ${viewingUser.status === UserStatus.APPROVED ? 'text-emerald-600' : 'text-amber-600'}`}>{viewingUser.status}</span>
+                            {viewingUser.approvedBy && (
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                    Approved by: {viewingUser.approvedBy} <br/> on {viewingUser.approvedAt}
+                                </p>
+                            )}
                         </div>
                         <div className="p-3 bg-slate-50 rounded-lg">
                              <p className="text-xs font-bold text-slate-500 uppercase">Payment</p>
@@ -799,6 +811,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                <td className="px-6 py-4 font-medium">
                                    {user.fullName}
                                    <div className="text-xs text-slate-400">{user.mobile}</div>
+                                   {user.approvedBy && <div className="text-[10px] text-emerald-600 mt-1">Appr: {user.approvedBy}</div>}
                                </td>
                                <td className="px-6 py-4">
                                    <span className={`px-2 py-1 rounded text-xs font-bold bg-emerald-100 text-emerald-700`}>
@@ -1170,10 +1183,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                       <div className="flex gap-2">
                           <button 
                               onClick={async () => {
-                                  if(confirm("This will reset all questions to the default core list. Existing answers might lose context labels but data remains. Continue?")) {
-                                      await StorageService.seedDefaultQuestions();
-                                      setQuestions(await StorageService.getQuestions());
-                                      alert("Questions reset to default.");
+                                  if(confirm("This will DELETE existing questions and reset to defaults. Continue?")) {
+                                      try {
+                                          await StorageService.seedDefaultQuestions();
+                                          setQuestions(await StorageService.getQuestions());
+                                          alert("Questions reset to default.");
+                                      } catch (e) {
+                                          console.error(e);
+                                          alert("Failed to reset questions.");
+                                      }
                                   }
                               }}
                               className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg text-sm hover:bg-slate-200 flex items-center gap-2"
@@ -1494,7 +1512,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                          {filteredList.map(u => (
                              <tr key={u.id} className="hover:bg-slate-50">
                                  <td className="px-6 py-4 font-mono text-xs font-bold text-slate-900">{u.membershipNo}</td>
-                                 <td className="px-6 py-4 font-bold">{u.fullName}</td>
+                                 <td className="px-6 py-4 font-bold">
+                                     {u.fullName}
+                                     {/* Show approval info in Users Data view */}
+                                     {activeTab === 'Users Data' && u.approvedBy && (
+                                         <p className="text-[9px] text-emerald-600 font-normal mt-0.5">Approved by: {u.approvedBy}</p>
+                                     )}
+                                 </td>
                                  <td className="px-6 py-4">{u.mobile}</td>
                                  <td className="px-6 py-4">{u.mandalam}</td>
                                  <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs ${u.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{u.status}</span></td>

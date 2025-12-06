@@ -114,6 +114,8 @@ export interface User {
   password?: string; 
   isImported?: boolean; // Flag to trigger profile completion
   paymentRemarks?: string; // Stores user entered payment details
+  approvedBy?: string; // Stores the name of the admin who approved
+  approvedAt?: string; // Date of approval
 
   // Dynamic Data
   customData?: Record<string, any>;

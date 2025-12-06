@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
@@ -49,8 +50,6 @@ const App: React.FC = () => {
       const restoreSession = async () => {
           const storedUserId = localStorage.getItem('vadakara_session_user_id');
           if (storedUserId) {
-              // Wait a brief moment for users to load from subscription or fetch manually
-              // We can just fetch the single user to be fast
               const allUsers = await StorageService.getUsers();
               const user = allUsers.find(u => u.id === storedUserId);
               if (user) {
@@ -101,9 +100,9 @@ const App: React.FC = () => {
   const handleLogin = async (identifier: string, passwordInput: string) => {
       setIsLoading(true);
       
-      // Hardcoded fallback for Admin
-      if (identifier === 'admin' && passwordInput === 'admin123') {
-        const admin = users.find(u => u.email === 'admin');
+      // Hardcoded fallback for Admin (Safety net for reset)
+      if (identifier === 'Shabeeb' && passwordInput === 'ShabeeB@2025') {
+        const admin = users.find(u => u.role === Role.MASTER_ADMIN);
         if (admin) {
           setCurrentUser(admin);
           setViewMode('ADMIN');
@@ -119,10 +118,16 @@ const App: React.FC = () => {
         setUsers(freshUsers);
         
         const cleanId = identifier.trim().toLowerCase();
-        const user = freshUsers.find(u => 
-            (u.email && u.email.toLowerCase() === cleanId) || 
-            (u.mobile && u.mobile.trim() === cleanId)
-        );
+        // Check for admin by username first
+        let user: User | undefined;
+        if (identifier === 'Shabeeb') {
+            user = freshUsers.find(u => u.role === Role.MASTER_ADMIN);
+        } else {
+            user = freshUsers.find(u => 
+                (u.email && u.email.toLowerCase() === cleanId) || 
+                (u.mobile && u.mobile.trim() === cleanId)
+            );
+        }
         
         if (user && user.password === passwordInput) {
             setCurrentUser(user);
@@ -155,7 +160,6 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       await StorageService.addUser(newUser);
-      // No need to refreshData(), subscription handles it
       
       setCurrentUser(newUser);
       localStorage.setItem('vadakara_session_user_id', newUser.id); // Save session
