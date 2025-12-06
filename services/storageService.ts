@@ -10,9 +10,10 @@ import {
     deleteDoc, 
     query, 
     onSnapshot,
-    writeBatch
+    writeBatch,
+    getDoc
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType } from '../types';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
@@ -21,6 +22,7 @@ const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
+const SETTINGS_COLLECTION = 'settings';
 
 // Master Admin Fallback
 const ADMIN_USER: User = {
@@ -349,10 +351,29 @@ export const StorageService = {
       const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
       await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
   },
+  
+  // --- CARD CONFIG ---
+  saveCardConfig: async (config: CardConfig): Promise<void> => {
+      await setDoc(doc(db, SETTINGS_COLLECTION, 'card_config'), config);
+  },
+  
+  getCardConfig: async (): Promise<CardConfig | null> => {
+      try {
+          const docRef = doc(db, SETTINGS_COLLECTION, 'card_config');
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+              return docSnap.data() as CardConfig;
+          }
+          return null;
+      } catch (e) {
+          console.error("Error fetching card config", e);
+          return null;
+      }
+  },
 
   // --- DANGER ZONE: RESET ---
   resetDatabase: async (): Promise<void> => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION];
       
       // 1. Delete all documents in all collections
       for (const colName of collections) {

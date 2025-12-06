@@ -1,6 +1,8 @@
-import React, { useRef } from 'react';
+
+import React, { useRef, useEffect, useState } from 'react';
 import { Download, Share2 } from 'lucide-react';
-import { User, UserStatus } from '../types';
+import { User, UserStatus, CardConfig } from '../types';
+import { StorageService } from '../services/storageService';
 
 declare global {
   interface Window {
@@ -14,13 +16,17 @@ interface MembershipCardProps {
 
 const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${user.membershipNo}`;
+  const [cardConfig, setCardConfig] = useState<CardConfig | null>(null);
+
+  useEffect(() => {
+      StorageService.getCardConfig().then(c => setCardConfig(c));
+  }, []);
 
   const handleDownload = async () => {
     if (cardRef.current && window.html2canvas) {
       try {
         const canvas = await window.html2canvas(cardRef.current, {
-            scale: 2,
+            scale: 3, // Higher resolution
             useCORS: true,
             backgroundColor: null
         });
@@ -49,66 +55,78 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
       )
   }
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-8 py-8">
-      <div className="text-center space-y-2">
-          <h2 className="text-3xl font-bold text-slate-900">Digital Membership Card</h2>
-          <p className="text-slate-500">Official identification for Vadakara NRI Forum events.</p>
-      </div>
+  // --- RENDER CUSTOM TEMPLATE IF AVAILABLE ---
+  if (cardConfig && cardConfig.templateImage) {
+      return (
+        <div className="max-w-3xl mx-auto space-y-8 py-8">
+            <div className="text-center space-y-2">
+                <h2 className="text-3xl font-bold text-slate-900">Digital Membership Card</h2>
+                <p className="text-slate-500">Official identification for Vadakara NRI Forum.</p>
+            </div>
 
-      <div className="flex justify-center p-4">
-        <div 
-            id="membership-card" 
-            ref={cardRef}
-            className="w-full max-w-[600px] aspect-[1.8/1] rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row bg-white"
-        >
-            {/* Left Side - Brand Green */}
-            <div className="md:w-[40%] bg-emerald-700 p-8 text-white flex flex-col justify-between relative">
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-                
-                <div className="relative z-10">
-                    <div className="opacity-80 text-[10px] font-bold tracking-widest mb-1">REGISTRATION NO</div>
-                    <div className="text-2xl font-mono font-bold tracking-tight">{user.membershipNo}</div>
-                </div>
-                
-                <div className="relative z-10">
-                    <h2 className="text-xl font-bold leading-tight mb-4">{user.fullName}</h2>
-                    <div className="space-y-1 text-xs opacity-90 font-medium">
-                        <p>{user.mobile}</p>
-                        <p>{user.mandalam}</p>
-                        <p>{user.emirate}</p>
-                    </div>
+            <div className="flex justify-center p-4">
+                <div 
+                    ref={cardRef}
+                    className="relative shadow-2xl rounded-xl overflow-hidden inline-block"
+                >
+                    <img src={cardConfig.templateImage} alt="Card Template" className="max-w-full h-auto block" />
+                    
+                    {/* Render Fields */}
+                    {cardConfig.fields.map(field => {
+                        // Resolve Value Logic
+                        let value = '';
+                        
+                        // 1. Try direct User property (System Field)
+                        if (field.key in user) {
+                            value = String((user as any)[field.key] || '');
+                        } 
+                        // 2. Try Custom Data (Question ID)
+                        else if (user.customData && user.customData[field.key]) {
+                             value = String(user.customData[field.key]);
+                        }
+                        
+                        // 3. Fallbacks / Formatting
+                        if (!value) value = '';
+                        
+                        return (
+                            <div 
+                                key={field.id}
+                                style={{
+                                    position: 'absolute',
+                                    left: `${field.x}%`,
+                                    top: `${field.y}%`,
+                                    transform: 'translate(-50%, -50%)',
+                                    color: field.color,
+                                    fontSize: `${field.fontSize}px`, 
+                                    fontWeight: field.fontWeight,
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: 1,
+                                    zIndex: 10
+                                }}
+                            >
+                                {value}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
 
-            {/* Right Side - Brand Blue */}
-            <div className="md:w-[60%] bg-blue-800 p-8 text-white relative flex flex-col items-center justify-center text-center">
-                 <div className="absolute top-0 left-0 w-full h-1 bg-accent"></div>
-                 
-                <div className="mb-4 font-bold text-sm tracking-widest opacity-90 uppercase">
-                    Pratheeksha
-                </div>
-
-                <div className="bg-white p-3 rounded-xl shadow-lg mb-4">
-                    <img src={qrCodeUrl} alt="QR Code" className="w-24 h-24 object-contain mix-blend-multiply" crossOrigin="anonymous" />
-                </div>
-
-                <div className="text-[10px] opacity-60 uppercase tracking-widest">
-                    Valid Thru {user.registrationYear}
-                </div>
+            <div className="flex justify-center">
+                <button 
+                    onClick={handleDownload}
+                    className="flex items-center gap-2 px-8 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
+                >
+                    <Download className="w-5 h-5" /> Save to Device
+                </button>
             </div>
         </div>
-      </div>
+      );
+  }
 
-      <div className="flex justify-center">
-          <button 
-            onClick={handleDownload}
-            className="flex items-center gap-2 px-8 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
-          >
-              <Download className="w-5 h-5" /> Save to Device
-          </button>
+  return (
+      <div className="text-center py-10">
+          <p className="text-slate-500">No card template configured by Admin.</p>
       </div>
-    </div>
   );
 };
 

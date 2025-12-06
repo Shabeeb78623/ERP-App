@@ -145,6 +145,25 @@ export interface YearConfig {
     count: number;
 }
 
+export interface CardField {
+    id: string;
+    label: string;
+    key: string; // The property key in User object or customData key
+    x: number;
+    y: number;
+    fontSize: number;
+    color: string;
+    fontWeight: 'normal' | 'bold';
+    sampleValue: string; // For preview
+}
+
+export interface CardConfig {
+    templateImage: string; // Base64
+    fields: CardField[];
+    width: number; // Original width of template
+    height: number; // Original height of template
+}
+
 export type ViewState = 'DASHBOARD' | 'USERS' | 'PAYMENTS' | 'BENEFITS' | 'COMMUNICATIONS' | 'CARD' | 'AUTH' | 'ACCOUNT' | 'NOTIFICATIONS';
 
 export interface DashboardStats {

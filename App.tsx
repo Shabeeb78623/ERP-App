@@ -94,7 +94,7 @@ const App: React.FC = () => {
       rejected: users.filter(u => u.status === UserStatus.REJECTED && u.role !== Role.MASTER_ADMIN).length,
       paid: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length,
       admins: users.filter(u => u.role !== Role.USER && u.role !== Role.MASTER_ADMIN).length,
-      collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length * 60
+      collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length * 25
   };
 
   const handleLogin = async (identifier: string, passwordInput: string) => {
