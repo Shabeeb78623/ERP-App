@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -31,7 +31,7 @@ interface AdminDashboardProps {
 }
 
 const ALL_TABS = [
-  'User Approvals', 'Users Data', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
+  'User Approvals', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
   'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
 ];
 
@@ -71,6 +71,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -103,6 +104,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   });
   
   const [editUserForm, setEditUserForm] = useState<Partial<User>>({});
+  const [newUserForm, setNewUserForm] = useState<Partial<User>>({
+      role: Role.USER,
+      status: UserStatus.APPROVED,
+      paymentStatus: PaymentStatus.UNPAID,
+      mandalam: Mandalam.VATAKARA,
+      emirate: Emirate.DUBAI
+  });
 
   // Admin Assignment
   const [selectedUserForAdmin, setSelectedUserForAdmin] = useState<User | null>(null);
@@ -120,7 +128,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // Filter Tabs based on Role
   const visibleTabs = ALL_TABS.filter(tab => {
       // Restricted tabs only for Master Admin
-      if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'].includes(tab)) {
+      if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Import Users'].includes(tab)) {
           return currentUser.role === Role.MASTER_ADMIN;
       }
       return true;
@@ -327,20 +335,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           const lines = text.split('\n').filter(l => l.trim());
           const newUsers: User[] = [];
           
-          // Get starting sequence once to avoid async race condition in loop
+          // Get starting sequence from DB
           const currentYear = new Date().getFullYear();
           let currentSeq = await StorageService.getNextSequence(currentYear);
 
           // Assuming CSV headers: Name, EmiratesID, Mobile, Emirate, Mandalam, Date(optional)
-          // Skip header row if exists (simple check if row 0 contains "name" or "id")
+          // Skip header row if exists
           const startIdx = lines[0].toLowerCase().includes('name') ? 1 : 0;
 
           for (let i = startIdx; i < lines.length; i++) {
                const cols = lines[i].split(',');
-               if (cols.length > 2) {
+               if (cols.length >= 2) {
                    const generatedRegNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
-                   currentSeq++; // Increment locally
-
+                   
                    newUsers.push({
                        id: `user-${Date.now()}-${i}`,
                        fullName: cols[0]?.trim() || 'Unknown',
@@ -349,7 +356,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        whatsapp: cols[2]?.trim() || '',
                        emirate: (cols[3]?.trim() as Emirate) || Emirate.DUBAI,
                        mandalam: (cols[4]?.trim() as Mandalam) || Mandalam.VATAKARA,
-                       registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), // Use CSV date or today
+                       registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), 
                        
                        // Defaults
                        status: UserStatus.APPROVED,
@@ -359,8 +366,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        membershipNo: generatedRegNo,
                        password: cols[1]?.trim() || 'password', 
                        photoUrl: '',
-                       isImported: true
+                       isImported: true,
+                       approvedBy: currentUser.fullName,
+                       approvedAt: new Date().toLocaleDateString()
                    });
+                   currentSeq++; // Increment seq for next user
                }
           }
           await StorageService.addUsers(newUsers, setImportProgress);
@@ -371,6 +381,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       } finally { 
           setIsImporting(false); 
           setImportFile(null); 
+      }
+  };
+  
+  const handleAddNewUser = async () => {
+      if(!newUserForm.fullName || !newUserForm.mobile) return alert("Name and Mobile are required");
+      try {
+          const currentYear = new Date().getFullYear();
+          const nextSeq = await StorageService.getNextSequence(currentYear);
+          const membershipNo = `${currentYear}${nextSeq.toString().padStart(4, '0')}`;
+          
+          const newUser: User = {
+              ...newUserForm as User,
+              id: `user-${Date.now()}`,
+              membershipNo,
+              registrationYear: currentYear,
+              registrationDate: new Date().toLocaleDateString(),
+              password: newUserForm.emiratesId || 'password',
+              photoUrl: '',
+              isImported: true,
+              approvedBy: currentUser.fullName,
+              approvedAt: new Date().toLocaleDateString(),
+              whatsapp: newUserForm.mobile || '',
+              emiratesId: newUserForm.emiratesId || `784${Date.now()}`
+          };
+          
+          await StorageService.addUser(newUser);
+          setShowAddUserModal(false);
+          setNewUserForm({ role: Role.USER, status: UserStatus.APPROVED, paymentStatus: PaymentStatus.UNPAID, mandalam: Mandalam.VATAKARA, emirate: Emirate.DUBAI });
+          alert("User added successfully.");
+      } catch(e: any) {
+          alert(e.message);
       }
   };
 
@@ -593,94 +634,62 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
-      {/* 2. USERS DATA (SIMPLIFIED VIEW AS REQUESTED) */}
-      {activeTab === 'Users Data' && (
-        <div className="space-y-4">
-             <div className="flex gap-4 mb-4">
-                 <div className="relative flex-1">
-                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                     <input className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-primary" placeholder="Search by Name, RegNo, Mobile..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+      {/* 2. USERS OVERVIEW (MAIN LIST) */}
+      {activeTab === 'Users Overview' && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+             <div className="bg-slate-800 p-4 flex items-center justify-between">
+                 <div className="flex items-center gap-3 w-full max-w-md">
+                     <Search className="text-slate-400 w-5 h-5" />
+                     <input 
+                        className="bg-transparent border-none outline-none text-white w-full placeholder-slate-500 text-sm" 
+                        placeholder="Search..." 
+                        value={searchTerm} 
+                        onChange={e => setSearchTerm(e.target.value)}
+                     />
                  </div>
+                 <button onClick={() => setShowAddUserModal(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors">
+                     <UserPlus className="w-4 h-4" /> Add User
+                 </button>
              </div>
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                 <div className="overflow-x-auto">
-                     <table className="w-full text-left text-sm">
-                         <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
-                             <tr>
-                                 <th className="px-6 py-3">Reg No</th>
-                                 <th className="px-6 py-3">Name</th>
-                                 <th className="px-6 py-3">Phone No</th>
-                                 <th className="px-6 py-3">Status</th>
-                                 <th className="px-6 py-3 text-right">Action</th>
+             <div className="overflow-x-auto">
+                 <table className="w-full text-left text-sm">
+                     <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500 font-bold">
+                         <tr>
+                             <th className="px-6 py-4">Reg No</th>
+                             <th className="px-6 py-4">Name</th>
+                             <th className="px-6 py-4">Mobile</th>
+                             <th className="px-6 py-4">Mandalam</th>
+                             <th className="px-6 py-4">Status</th>
+                             <th className="px-6 py-4 text-right">Actions</th>
+                         </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50">
+                         {filteredList.map(u => (
+                             <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                                 <td className="px-6 py-4 font-mono font-bold text-slate-700">{u.membershipNo}</td>
+                                 <td className="px-6 py-4 font-bold text-slate-900">{u.fullName}</td>
+                                 <td className="px-6 py-4 text-slate-600">{u.mobile}</td>
+                                 <td className="px-6 py-4 text-slate-600">{u.mandalam}</td>
+                                 <td className="px-6 py-4">
+                                     <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${u.status === UserStatus.APPROVED ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                         {u.status}
+                                     </span>
+                                 </td>
+                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                     <button onClick={() => setViewingUser(u)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Eye className="w-5 h-5"/></button>
+                                     <button onClick={() => { setEditUserForm(u); setShowEditUserModal(true); }} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"><Edit className="w-5 h-5"/></button>
+                                 </td>
                              </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-50">
-                             {filteredList.map(u => (
-                                 <tr key={u.id} className="hover:bg-slate-50">
-                                     <td className="px-6 py-4 font-mono text-xs">{u.membershipNo}</td>
-                                     <td className="px-6 py-4 font-bold">{u.fullName}</td>
-                                     <td className="px-6 py-4 text-xs">{u.mobile}</td>
-                                     <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.status===UserStatus.APPROVED?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}`}>{u.status}</span></td>
-                                     <td className="px-6 py-4 text-right space-x-2">
-                                         <button onClick={() => setViewingUser(u)} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><Eye className="w-4 h-4"/></button>
-                                         <button onClick={() => { setEditUserForm(u); setShowEditUserModal(true); }} className="p-1.5 text-slate-600 bg-slate-100 rounded hover:bg-slate-200"><Edit className="w-4 h-4"/></button>
-                                     </td>
-                                 </tr>
-                             ))}
-                         </tbody>
-                     </table>
-                 </div>
+                         ))}
+                         {filteredList.length === 0 && (
+                             <tr>
+                                 <td colSpan={6} className="px-6 py-8 text-center text-slate-400 italic">No users found.</td>
+                             </tr>
+                         )}
+                     </tbody>
+                 </table>
              </div>
         </div>
-      )}
-
-      {/* 3. USERS OVERVIEW (CHARTS) */}
-      {activeTab === 'Users Overview' && (
-          <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                        <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Membership by Mandalam</h4>
-                        <div className="h-64">
-                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={MANDALAMS.map(m => ({ name: m, value: users.filter(u => u.mandalam === m).length }))}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="name" fontSize={10} angle={-45} textAnchor="end" height={60} />
-                                    <YAxis fontSize={12} allowDecimals={false} />
-                                    <Tooltip />
-                                    <Bar dataKey="value" fill="#004e92" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                             </ResponsiveContainer>
-                        </div>
-                   </div>
-                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                        <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4"/> Status Distribution</h4>
-                        <div className="h-64">
-                             <ResponsiveContainer width="100%" height="100%">
-                                <RePieChart>
-                                    <Pie
-                                      data={[
-                                          { name: 'Approved', value: stats.approved, color: '#059669' },
-                                          { name: 'Pending', value: stats.pending, color: '#f59e0b' },
-                                          { name: 'Rejected', value: stats.rejected, color: '#dc2626' }
-                                      ]}
-                                      cx="50%"
-                                      cy="50%"
-                                      innerRadius={60}
-                                      outerRadius={80}
-                                      paddingAngle={5}
-                                      dataKey="value"
-                                    >
-                                        <Cell fill="#059669" />
-                                        <Cell fill="#f59e0b" />
-                                        <Cell fill="#dc2626" />
-                                    </Pie>
-                                    <Tooltip />
-                                </RePieChart>
-                             </ResponsiveContainer>
-                        </div>
-                   </div>
-              </div>
-          </div>
       )}
 
       {/* 4. PAYMENT MGMT */}
@@ -1134,6 +1143,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        <button onClick={saveEditUser} className="px-4 py-2 bg-primary text-white rounded">Save</button>
                    </div>
                </div>
+          </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUserModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto">
+                  <h3 className="font-bold text-lg mb-4">Add New User</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                      <input className="border p-2 rounded" placeholder="Full Name *" value={newUserForm.fullName || ''} onChange={e => setNewUserForm({...newUserForm, fullName: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Mobile *" value={newUserForm.mobile || ''} onChange={e => setNewUserForm({...newUserForm, mobile: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Emirates ID" value={newUserForm.emiratesId || ''} onChange={e => setNewUserForm({...newUserForm, emiratesId: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Email" value={newUserForm.email || ''} onChange={e => setNewUserForm({...newUserForm, email: e.target.value})} />
+                      <select className="border p-2 rounded" value={newUserForm.mandalam} onChange={e => setNewUserForm({...newUserForm, mandalam: e.target.value as Mandalam})}>
+                           {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-6">
+                      <button onClick={() => setShowAddUserModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                      <button onClick={handleAddNewUser} className="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700">Add User</button>
+                  </div>
+              </div>
           </div>
       )}
 
