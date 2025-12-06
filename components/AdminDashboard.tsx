@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -30,7 +30,7 @@ interface AdminDashboardProps {
   isLoading: boolean;
 }
 
-const TABS = [
+const ALL_TABS = [
   'User Approvals', 'Users Data', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
   'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
 ];
@@ -117,9 +117,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const cardImageRef = useRef<HTMLImageElement>(null);
   const [draggedFieldId, setDraggedFieldId] = useState<string | null>(null);
 
+  // Filter Tabs based on Role
+  const visibleTabs = ALL_TABS.filter(tab => {
+      // Restricted tabs only for Master Admin
+      if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'].includes(tab)) {
+          return currentUser.role === Role.MASTER_ADMIN;
+      }
+      return true;
+  });
+
   useEffect(() => {
     setSearchTerm('');
-  }, [activeTab]);
+    // If active tab is restricted and user is not master, switch to default
+    if (!visibleTabs.includes(activeTab)) {
+        setActiveTab(visibleTabs[0]);
+    }
+  }, [activeTab, currentUser.role]);
 
   useEffect(() => {
       const loadData = async () => {
@@ -128,7 +141,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setCardConfig(await StorageService.getCardConfig());
       }
       loadData();
-  }, [activeTab, isQuestionModalOpen]); // Reload questions when modal closes/opens to refresh state
+  }, [activeTab, isQuestionModalOpen]);
 
   // --- FILTERED DATA LOGIC ---
   const getAuthorizedUsers = () => {
@@ -225,8 +238,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setSendingNotif(true);
       try {
           let recipients: string[] | undefined = undefined;
-          if (notifTarget !== 'ALL') recipients = users.filter(u => u.mandalam === notifTarget).map(u => u.id);
-          else if (currentUser.role === Role.MANDALAM_ADMIN) recipients = authorizedUsers.map(u => u.id);
+          let audienceLabel = 'All Members';
+
+          if (notifTarget !== 'ALL') {
+              // Targeting specific Mandalam
+              recipients = users.filter(u => u.mandalam === notifTarget).map(u => u.id);
+              audienceLabel = `${notifTarget} Members`;
+          } else if (currentUser.role === Role.MANDALAM_ADMIN) {
+              // Mandalam Admin targeting their own users
+              recipients = authorizedUsers.map(u => u.id);
+              audienceLabel = 'My Members';
+          }
           
           await StorageService.addNotification({
               id: `notif-${Date.now()}`,
@@ -234,14 +256,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               message: notifMessage,
               date: new Date().toLocaleDateString(),
               read: false,
-              type: 'BROADCAST',
-              targetAudience: notifTarget === 'ALL' ? 'All Members' : `${notifTarget} Members`,
-              recipients: recipients
+              type: recipients ? 'INDIVIDUAL' : 'BROADCAST',
+              targetAudience: audienceLabel,
+              recipients: recipients // If undefined, it's a true broadcast
           });
           alert("Notification Sent!");
           setNotifTitle(''); setNotifMessage('');
       } catch (e) {
           alert("Error sending notification");
+          console.error(e);
       } finally { 
           setSendingNotif(false); 
       }
@@ -303,24 +326,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           const text = await importFile.text();
           const lines = text.split('\n').filter(l => l.trim());
           const newUsers: User[] = [];
-          for (let i = 1; i < lines.length; i++) {
+          
+          // Get starting sequence once to avoid async race condition in loop
+          const currentYear = new Date().getFullYear();
+          let currentSeq = await StorageService.getNextSequence(currentYear);
+
+          // Assuming CSV headers: Name, EmiratesID, Mobile, Emirate, Mandalam, Date(optional)
+          // Skip header row if exists (simple check if row 0 contains "name" or "id")
+          const startIdx = lines[0].toLowerCase().includes('name') ? 1 : 0;
+
+          for (let i = startIdx; i < lines.length; i++) {
                const cols = lines[i].split(',');
                if (cols.length > 2) {
+                   const generatedRegNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
+                   currentSeq++; // Increment locally
+
                    newUsers.push({
                        id: `user-${Date.now()}-${i}`,
-                       fullName: cols[0] || 'Unknown',
-                       mobile: cols[2] || '',
-                       whatsapp: cols[2] || '',
-                       emiratesId: cols[1] || `784${Date.now()}${i}`,
-                       mandalam: (cols[4] as Mandalam) || Mandalam.VATAKARA,
-                       emirate: (cols[3] as Emirate) || Emirate.DUBAI,
+                       fullName: cols[0]?.trim() || 'Unknown',
+                       emiratesId: cols[1]?.trim() || `784${Date.now()}${i}`,
+                       mobile: cols[2]?.trim() || '',
+                       whatsapp: cols[2]?.trim() || '',
+                       emirate: (cols[3]?.trim() as Emirate) || Emirate.DUBAI,
+                       mandalam: (cols[4]?.trim() as Mandalam) || Mandalam.VATAKARA,
+                       registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), // Use CSV date or today
+                       
+                       // Defaults
                        status: UserStatus.APPROVED,
                        paymentStatus: PaymentStatus.UNPAID,
                        role: Role.USER,
-                       registrationYear: new Date().getFullYear(),
-                       membershipNo: await StorageService.generateNextMembershipNo(new Date().getFullYear()),
-                       registrationDate: new Date().toLocaleDateString(),
-                       password: cols[1] || 'password', // Fallback
+                       registrationYear: currentYear,
+                       membershipNo: generatedRegNo,
+                       password: cols[1]?.trim() || 'password', 
                        photoUrl: '',
                        isImported: true
                    });
@@ -491,7 +528,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       </div>
 
-      {/* --- STATS GRID (MATCHING SCREENSHOT) --- */}
+      {/* --- STATS GRID --- */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
            {/* Row 1 */}
            <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
@@ -512,7 +549,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
       {/* --- TABS --- */}
       <div className="flex overflow-x-auto pb-2 gap-2 mt-2 no-scrollbar">
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button 
             key={tab} 
             onClick={() => setActiveTab(tab)} 
@@ -556,7 +593,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
-      {/* 2. USERS DATA */}
+      {/* 2. USERS DATA (SIMPLIFIED VIEW AS REQUESTED) */}
       {activeTab === 'Users Data' && (
         <div className="space-y-4">
              <div className="flex gap-4 mb-4">
@@ -572,8 +609,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                              <tr>
                                  <th className="px-6 py-3">Reg No</th>
                                  <th className="px-6 py-3">Name</th>
-                                 <th className="px-6 py-3">Mobile</th>
-                                 <th className="px-6 py-3">Mandalam</th>
+                                 <th className="px-6 py-3">Phone No</th>
                                  <th className="px-6 py-3">Status</th>
                                  <th className="px-6 py-3 text-right">Action</th>
                              </tr>
@@ -584,7 +620,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                      <td className="px-6 py-4 font-mono text-xs">{u.membershipNo}</td>
                                      <td className="px-6 py-4 font-bold">{u.fullName}</td>
                                      <td className="px-6 py-4 text-xs">{u.mobile}</td>
-                                     <td className="px-6 py-4 text-xs">{u.mandalam}</td>
                                      <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.status===UserStatus.APPROVED?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}`}>{u.status}</span></td>
                                      <td className="px-6 py-4 text-right space-x-2">
                                          <button onClick={() => setViewingUser(u)} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><Eye className="w-4 h-4"/></button>
@@ -599,7 +634,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
-      {/* 3. USERS OVERVIEW */}
+      {/* 3. USERS OVERVIEW (CHARTS) */}
       {activeTab === 'Users Overview' && (
           <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -778,7 +813,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   <FileUp className="w-8 h-8" />
               </div>
               <h3 className="text-xl font-bold mb-2">Bulk Import Users</h3>
-              <p className="text-slate-500 mb-6 text-sm">Upload a CSV file with columns: Name, EmiratesID, Mobile, Emirate, Mandalam.</p>
+              <p className="text-slate-500 mb-6 text-sm">Upload a CSV file with columns: Name, EmiratesID, Mobile, Emirate, Mandalam, JoinDate(optional).</p>
               
               <div className="mb-6 flex justify-center">
                   <input type="file" accept=".csv" onChange={e => setImportFile(e.target.files?.[0] || null)} />
@@ -794,8 +829,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* 9. ADMIN ASSIGN */}
-      {activeTab === 'Admin Assign' && (
+      {/* 9. ADMIN ASSIGN (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'Admin Assign' && currentUser.role === Role.MASTER_ADMIN && (
           <div className="space-y-6">
               <div className="bg-white p-4 rounded-xl border border-slate-200">
                   <input className="w-full p-2 border rounded" placeholder="Search user to assign role..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
@@ -822,8 +857,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* 10. REG QUESTIONS */}
-      {activeTab === 'Reg Questions' && (
+      {/* 10. REG QUESTIONS (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'Reg Questions' && currentUser.role === Role.MASTER_ADMIN && (
           <div className="bg-white p-6 rounded-xl border border-slate-200">
                <div className="flex justify-between items-center mb-6">
                    <div>
@@ -863,8 +898,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* 11. NEW YEAR */}
-      {activeTab === 'New Year' && (
+      {/* 11. NEW YEAR (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'New Year' && currentUser.role === Role.MASTER_ADMIN && (
           <div className="flex items-center justify-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
               <div className="text-center max-w-md">
                   <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -879,8 +914,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* 12. CARD MGMT (Kept from previous update) */}
-      {activeTab === 'Card Mgmt' && (
+      {/* 12. CARD MGMT (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'Card Mgmt' && currentUser.role === Role.MASTER_ADMIN && (
           <div className="space-y-6">
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-start mb-6">

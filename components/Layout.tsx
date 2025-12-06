@@ -161,12 +161,12 @@ const Layout: React.FC<LayoutProps> = ({
                )}
 
                {/* Switch View (Only for Non-Master Admins) */}
-               {currentUser.role !== Role.USER && currentUser.role !== Role.MASTER_ADMIN && (
+               {currentUser.role !== Role.USER && (
                   <button
                       onClick={toggleViewMode}
-                      className="text-xs font-semibold text-primary hover:text-blue-800 underline"
+                      className="text-xs font-semibold text-primary hover:text-blue-800 underline border border-blue-100 bg-blue-50 px-3 py-1 rounded-full"
                   >
-                      {viewMode === 'ADMIN' ? 'User View' : 'Admin Console'}
+                      {viewMode === 'ADMIN' ? 'Switch to User View' : 'Switch to Admin Console'}
                   </button>
                )}
 
@@ -196,12 +196,15 @@ const Layout: React.FC<LayoutProps> = ({
                             <p className="text-xs text-slate-500 truncate">{currentUser.email || currentUser.mobile}</p>
                         </div>
                         
-                        <button 
-                            onClick={handleResetApp}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 flex items-center gap-2"
-                        >
-                            <Trash2 className="w-4 h-4" /> Reset Data
-                        </button>
+                        {/* Only Master Admin can reset data */}
+                        {currentUser.role === Role.MASTER_ADMIN && (
+                            <button 
+                                onClick={handleResetApp}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 flex items-center gap-2"
+                            >
+                                <Trash2 className="w-4 h-4" /> Reset Data
+                            </button>
+                        )}
 
                         <button 
                             onClick={() => {

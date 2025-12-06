@@ -140,11 +140,22 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
 
 // --- Notifications View ---
 export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [] }) => {
-    // Filter notifications for this specific user
+    // Filter notifications logic
     const myNotifs = notifications.filter(n => {
-         if (n.recipients && n.recipients.includes(user.id)) return true;
-         if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
-         if (n.targetAudience === `${user.mandalam} Members`) return true;
+         // 1. Direct recipient check (highest priority)
+         if (n.recipients && n.recipients.length > 0) {
+             return n.recipients.includes(user.id);
+         }
+         
+         // 2. Broadcast check
+         if (n.type === 'BROADCAST') {
+             if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
+             // Mandalam specific broadcast
+             if (n.targetAudience === `${user.mandalam} Members`) return true;
+             // Custom text match fallback
+             if (n.targetAudience === 'My Members' && user.mandalam) return true; // Assuming context implies same mandalam
+         }
+         
          return false;
     });
 
