@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2 } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -219,8 +219,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   };
 
   const handleRejectPayment = async (id: string) => {
-      if(confirm("Reject this payment? Status will remain Unpaid.")) {
-          await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID });
+      if(confirm("Reject this payment submission? User will be notified.")) {
+          await StorageService.updateUser(id, { 
+              paymentStatus: PaymentStatus.UNPAID
+              // We keep paymentRemarks so history shows they attempted payment
+          });
       }
   };
 
@@ -557,6 +560,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       </div>
   );
 
+  // --- Payment Submission Lists ---
+  const pendingPayments = filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING);
+  // History includes Paid users OR Unpaid users who have attempted a payment (have remarks)
+  const paymentHistory = filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID || (u.paymentStatus === PaymentStatus.UNPAID && u.paymentRemarks));
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-4">
@@ -726,33 +734,68 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
       {/* 5. PAYMENT SUBS (SUBMISSIONS) */}
       {activeTab === 'Payment Subs' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-               <div className="p-4 bg-slate-50 border-b"><h3 className="font-bold">Payment Proof Submissions</h3></div>
-               <div className="divide-y">
-                   {filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING || u.paymentStatus === PaymentStatus.PAID).map(u => (
-                       <div key={u.id} className="p-4 flex flex-col md:flex-row justify-between items-center hover:bg-slate-50">
-                           <div className="mb-2 md:mb-0">
-                               <div className="flex items-center gap-2">
-                                   <p className="font-bold">{u.fullName}</p>
-                                   <span className="text-xs font-mono bg-slate-100 px-1 rounded">{u.membershipNo}</span>
-                                   {u.paymentStatus === PaymentStatus.PAID && <Check className="w-4 h-4 text-green-500"/>}
+          <div className="space-y-6">
+               {/* PENDING APPROVALS */}
+               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                   <div className="p-4 bg-orange-50 border-b border-orange-100 flex justify-between items-center">
+                       <h3 className="font-bold text-orange-800 flex items-center gap-2">
+                           <AlertCircle className="w-4 h-4" /> Pending Payment Approvals
+                       </h3>
+                       <span className="text-xs font-bold bg-white text-orange-600 px-2 py-1 rounded-full">{pendingPayments.length} Requests</span>
+                   </div>
+                   <div className="divide-y divide-slate-100">
+                       {pendingPayments.length > 0 ? pendingPayments.map(u => (
+                           <div key={u.id} className="p-4 flex flex-col md:flex-row justify-between items-center hover:bg-slate-50">
+                               <div className="flex-1">
+                                   <div className="flex items-center gap-3">
+                                       <p className="font-bold text-slate-900">{u.fullName}</p>
+                                       <span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-500">{u.membershipNo}</span>
+                                   </div>
+                                   <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-3">
+                                       <p className="text-xs text-blue-500 font-bold uppercase mb-1">Payment Remarks / Transaction ID</p>
+                                       <p className="text-sm text-slate-700 font-medium">"{u.paymentRemarks}"</p>
+                                   </div>
                                </div>
-                               <p className="text-sm mt-1 text-slate-600 bg-blue-50 p-2 rounded border border-blue-100">"{u.paymentRemarks}"</p>
+                               <div className="flex items-center gap-3 mt-4 md:mt-0 ml-4">
+                                   <button onClick={() => setViewingUser(u)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg"><Eye className="w-5 h-5"/></button>
+                                   <button onClick={() => handleApprovePayment(u.id)} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 shadow-sm flex items-center gap-2">
+                                       <CheckCircle2 className="w-4 h-4" /> Approve
+                                   </button>
+                                   <button onClick={() => handleRejectPayment(u.id)} className="px-4 py-2 bg-white text-red-600 border border-red-200 text-sm font-bold rounded-lg hover:bg-red-50 flex items-center gap-2">
+                                       <XCircle className="w-4 h-4" /> Reject
+                                   </button>
+                               </div>
                            </div>
-                           <div className="flex items-center gap-2">
-                               <button onClick={() => setViewingUser(u)} className="p-2 bg-slate-100 rounded hover:bg-slate-200"><Eye className="w-4 h-4"/></button>
-                               {u.paymentStatus !== PaymentStatus.PAID && (
-                                   <>
-                                       <button onClick={() => handleApprovePayment(u.id)} className="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700">Approve</button>
-                                       <button onClick={() => handleRejectPayment(u.id)} className="px-4 py-2 bg-red-100 text-red-600 text-sm font-bold rounded hover:bg-red-200">Reject</button>
-                                   </>
-                               )}
+                       )) : (
+                           <div className="p-8 text-center text-slate-400 italic">No pending payment submissions.</div>
+                       )}
+                   </div>
+               </div>
+
+               {/* SUBMISSION HISTORY */}
+               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                   <div className="p-4 bg-slate-50 border-b border-slate-100">
+                       <h3 className="font-bold text-slate-700">Submission History</h3>
+                   </div>
+                   <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-50">
+                       {paymentHistory.map(u => (
+                           <div key={u.id} className="p-4 flex justify-between items-center text-sm hover:bg-slate-50">
+                               <div>
+                                   <p className="font-bold text-slate-900">{u.fullName}</p>
+                                   <p className="text-xs text-slate-500">{u.paymentRemarks}</p>
+                               </div>
+                               <div className="text-right">
+                                   {u.paymentStatus === PaymentStatus.PAID ? (
+                                       <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-bold text-xs">APPROVED</span>
+                                   ) : (
+                                       <span className="px-2 py-1 rounded bg-red-100 text-red-700 font-bold text-xs">REJECTED / UNPAID</span>
+                                   )}
+                                   <p className="text-[10px] text-slate-400 mt-1">{u.approvedBy ? `by ${u.approvedBy}` : ''}</p>
+                               </div>
                            </div>
-                       </div>
-                   ))}
-                   {filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING || u.paymentStatus === PaymentStatus.PAID).length === 0 && (
-                       <div className="p-8 text-center text-slate-400">No payment submissions found.</div>
-                   )}
+                       ))}
+                       {paymentHistory.length === 0 && <div className="p-6 text-center text-slate-400 text-xs">No history available.</div>}
+                   </div>
                </div>
           </div>
       )}
@@ -1118,29 +1161,100 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* Edit User Modal */}
+      {/* Edit User Modal - EXPANDED */}
       {showEditUserModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-               <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto">
-                   <h3 className="font-bold text-lg mb-4">Edit User</h3>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       <input className="border p-2 rounded" placeholder="Full Name" value={editUserForm.fullName || ''} onChange={e => setEditUserForm({...editUserForm, fullName: e.target.value})} />
-                       <input className="border p-2 rounded" placeholder="Mobile" value={editUserForm.mobile || ''} onChange={e => setEditUserForm({...editUserForm, mobile: e.target.value})} />
-                       <input className="border p-2 rounded" placeholder="Email" value={editUserForm.email || ''} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} />
-                       <input className="border p-2 rounded" placeholder="Password" value={editUserForm.password || ''} onChange={e => setEditUserForm({...editUserForm, password: e.target.value})} />
-                       <select className="border p-2 rounded" value={editUserForm.mandalam} onChange={e => setEditUserForm({...editUserForm, mandalam: e.target.value as Mandalam})}>
-                           {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
-                       </select>
-                       <select className="border p-2 rounded" value={editUserForm.status} onChange={e => setEditUserForm({...editUserForm, status: e.target.value as UserStatus})}>
-                           {Object.values(UserStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                       </select>
-                       <select className="border p-2 rounded" value={editUserForm.paymentStatus} onChange={e => setEditUserForm({...editUserForm, paymentStatus: e.target.value as PaymentStatus})}>
-                           {Object.values(PaymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                       </select>
+               <div className="bg-white w-full max-w-2xl rounded-xl p-6 max-h-[90vh] overflow-y-auto">
+                   <div className="flex justify-between items-center mb-6 border-b pb-2">
+                       <h3 className="font-bold text-lg text-slate-900">Edit User Details</h3>
+                       <button onClick={() => setShowEditUserModal(false)}><X className="w-5 h-5 text-slate-400"/></button>
                    </div>
-                   <div className="flex justify-end gap-2 mt-6">
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       {/* Standard System Fields */}
+                       <div className="col-span-2">
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Full Name</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.fullName || ''} onChange={e => setEditUserForm({...editUserForm, fullName: e.target.value})} />
+                       </div>
+                       
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Mobile</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.mobile || ''} onChange={e => setEditUserForm({...editUserForm, mobile: e.target.value})} />
+                       </div>
+                       
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Email</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.email || ''} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Emirates ID</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.emiratesId || ''} onChange={e => setEditUserForm({...editUserForm, emiratesId: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Password</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.password || ''} onChange={e => setEditUserForm({...editUserForm, password: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Mandalam</label>
+                           <select className="w-full border p-2 rounded text-sm bg-white" value={editUserForm.mandalam} onChange={e => setEditUserForm({...editUserForm, mandalam: e.target.value as Mandalam})}>
+                               {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                           </select>
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Status</label>
+                           <select className="w-full border p-2 rounded text-sm bg-white" value={editUserForm.status} onChange={e => setEditUserForm({...editUserForm, status: e.target.value as UserStatus})}>
+                               {Object.values(UserStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                           </select>
+                       </div>
+
+                       {/* Dynamic Fields Loop */}
+                       {questions.map(q => {
+                           // Skip fields we already handled above manually if they are mapped
+                           if (['fullName','mobile','email','password','emiratesId','mandalam'].includes(q.systemMapping || '')) return null;
+
+                           let val = '';
+                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                               // It's a system field like addressUAE, addressIndia, etc.
+                               val = (editUserForm as any)[q.systemMapping] || '';
+                           } else {
+                               // It's custom data
+                               val = editUserForm.customData?.[q.id] || '';
+                           }
+
+                           return (
+                               <div key={q.id} className={q.type === FieldType.TEXTAREA ? "col-span-2" : ""}>
+                                   <label className="block text-xs font-bold text-slate-500 mb-1">{q.label}</label>
+                                   {q.type === FieldType.TEXTAREA ? (
+                                       <textarea className="w-full border p-2 rounded text-sm h-20 resize-none" value={val} onChange={e => {
+                                           const newVal = e.target.value;
+                                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                                               setEditUserForm({...editUserForm, [q.systemMapping]: newVal});
+                                           } else {
+                                               setEditUserForm({...editUserForm, customData: { ...editUserForm.customData, [q.id]: newVal }});
+                                           }
+                                       }} />
+                                   ) : (
+                                       <input className="w-full border p-2 rounded text-sm" value={val} onChange={e => {
+                                           const newVal = e.target.value;
+                                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                                               setEditUserForm({...editUserForm, [q.systemMapping]: newVal});
+                                           } else {
+                                               setEditUserForm({...editUserForm, customData: { ...editUserForm.customData, [q.id]: newVal }});
+                                           }
+                                       }} />
+                                   )}
+                               </div>
+                           );
+                       })}
+
+                   </div>
+                   <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
                        <button onClick={() => setShowEditUserModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
-                       <button onClick={saveEditUser} className="px-4 py-2 bg-primary text-white rounded">Save</button>
+                       <button onClick={saveEditUser} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary-dark">Save Changes</button>
                    </div>
                </div>
           </div>

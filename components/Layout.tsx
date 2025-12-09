@@ -160,8 +160,9 @@ const Layout: React.FC<LayoutProps> = ({
                   </button>
                )}
 
-               {/* Switch View (Only for Non-Master Admins) */}
-               {currentUser.role !== Role.USER && (
+               {/* Switch View (Visible for all Admins EXCEPT the specific System Admin 'admin-master') */}
+               {/* This allows assigned Master Admins (users promoted to admin) to still see their user dashboard */}
+               {currentUser.role !== Role.USER && currentUser.id !== 'admin-master' && (
                   <button
                       onClick={toggleViewMode}
                       className="text-xs font-semibold text-primary hover:text-blue-800 underline border border-blue-100 bg-blue-50 px-3 py-1 rounded-full"

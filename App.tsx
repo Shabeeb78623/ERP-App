@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
@@ -100,9 +99,10 @@ const App: React.FC = () => {
   const handleLogin = async (identifier: string, passwordInput: string) => {
       setIsLoading(true);
       
-      // Hardcoded fallback for Admin (Safety net for reset)
+      // Hardcoded fallback for System Admin (Shabeeb)
       if (identifier === 'Shabeeb' && passwordInput === 'ShabeeB@2025') {
-        const admin = users.find(u => u.role === Role.MASTER_ADMIN);
+        // Explicitly look for the 'admin-master' ID to avoid logging in as a promoted user
+        const admin = users.find(u => u.id === 'admin-master');
         if (admin) {
           setCurrentUser(admin);
           setViewMode('ADMIN');
@@ -121,7 +121,7 @@ const App: React.FC = () => {
         // Check for admin by username first
         let user: User | undefined;
         if (identifier === 'Shabeeb') {
-            user = freshUsers.find(u => u.role === Role.MASTER_ADMIN);
+            user = freshUsers.find(u => u.id === 'admin-master');
         } else {
             user = freshUsers.find(u => 
                 (u.email && u.email.toLowerCase() === cleanId) || 
@@ -133,12 +133,10 @@ const App: React.FC = () => {
             setCurrentUser(user);
             localStorage.setItem('vadakara_session_user_id', user.id); // Save session
             
-            if (user.role === Role.MASTER_ADMIN) {
+            if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
                 setViewMode('ADMIN');
-            } else if (user.role === Role.USER) {
-                setViewMode('USER');
             } else {
-                 setViewMode('ADMIN');
+                setViewMode('USER');
             }
 
             if (user.isImported) {
@@ -246,7 +244,9 @@ const App: React.FC = () => {
   };
 
   const toggleViewMode = () => {
-      if (currentUser?.role === Role.USER || currentUser?.role === Role.MASTER_ADMIN) return; 
+      // Allow assigned admins to switch, but restrict the System Admin (Shabeeb/admin-master)
+      if (currentUser?.role === Role.USER || currentUser?.id === 'admin-master') return; 
+      
       setViewMode(prev => prev === 'ADMIN' ? 'USER' : 'ADMIN');
       setCurrentView('DASHBOARD');
   };
