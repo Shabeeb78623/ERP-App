@@ -1,8 +1,6 @@
-
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-// FIX: Removed firebase/analytics to avoid module errors in environments where it's not supported or mocked
-// import { getAnalytics } from "firebase/analytics";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDu1yZAFo2yDFQI1xm4SQmI86uG2bnheHM",
@@ -16,7 +14,17 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app);
 const db = getFirestore(app);
+const auth = getAuth(app);
 
-export { db, app };
+const initializeAuth = async () => {
+    try {
+        if (!auth.currentUser) {
+            await signInAnonymously(auth);
+        }
+    } catch (error) {
+        console.error("Failed to sign in anonymously:", error);
+    }
+};
+
+export { db, app, auth, initializeAuth };

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
@@ -8,6 +7,7 @@ import MembershipCard from './components/MembershipCard';
 import Auth from './components/Auth';
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
+import { initializeAuth } from './services/firebase';
 import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification } from './types';
 
 const App: React.FC = () => {
@@ -32,46 +32,57 @@ const App: React.FC = () => {
 
   // --- SESSION PERSISTENCE & REAL-TIME SYNC ---
   useEffect(() => {
-      // 1. Subscribe to Real-time Data
-      const unsubscribeUsers = StorageService.subscribeToUsers((liveUsers) => {
-          setUsers(liveUsers);
-      });
-      
-      const unsubscribeBenefits = StorageService.subscribeToBenefits((liveBenefits) => {
-          setBenefits(liveBenefits);
-      });
+    let unsubscribeUsers: () => void;
+    let unsubscribeBenefits: () => void;
+    let unsubscribeNotifs: () => void;
 
-      const unsubscribeNotifs = StorageService.subscribeToNotifications((liveNotifs) => {
-          setNotifications(liveNotifs);
-      });
+    const init = async () => {
+        // 1. Ensure Auth (fixes permission errors)
+        await initializeAuth();
 
-      // 2. Restore Session from LocalStorage
-      const restoreSession = async () => {
-          const storedUserId = localStorage.getItem('vadakara_session_user_id');
-          if (storedUserId) {
-              const allUsers = await StorageService.getUsers();
-              const user = allUsers.find(u => u.id === storedUserId);
-              if (user) {
-                  setCurrentUser(user);
-                  if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
-                      setViewMode('ADMIN');
-                  } else {
-                      setViewMode('USER');
-                  }
-                  setCurrentView('DASHBOARD');
-              }
-          }
-          setIsLoading(false);
-      };
+        // 2. Subscribe to Real-time Data
+        unsubscribeUsers = StorageService.subscribeToUsers((liveUsers) => {
+            setUsers(liveUsers);
+        });
+        
+        unsubscribeBenefits = StorageService.subscribeToBenefits((liveBenefits) => {
+            setBenefits(liveBenefits);
+        });
 
-      restoreSession();
+        unsubscribeNotifs = StorageService.subscribeToNotifications((liveNotifs) => {
+            setNotifications(liveNotifs);
+        });
 
-      // Cleanup subscriptions on unmount
-      return () => {
-          unsubscribeUsers();
-          unsubscribeBenefits();
-          unsubscribeNotifs();
-      };
+        // 3. Restore Session from LocalStorage
+        const restoreSession = async () => {
+            const storedUserId = localStorage.getItem('vadakara_session_user_id');
+            if (storedUserId) {
+                const allUsers = await StorageService.getUsers();
+                const user = allUsers.find(u => u.id === storedUserId);
+                if (user) {
+                    setCurrentUser(user);
+                    if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
+                        setViewMode('ADMIN');
+                    } else {
+                        setViewMode('USER');
+                    }
+                    setCurrentView('DASHBOARD');
+                }
+            }
+            setIsLoading(false);
+        };
+
+        await restoreSession();
+    };
+
+    init();
+
+    // Cleanup subscriptions on unmount
+    return () => {
+        if (unsubscribeUsers) unsubscribeUsers();
+        if (unsubscribeBenefits) unsubscribeBenefits();
+        if (unsubscribeNotifs) unsubscribeNotifs();
+    };
   }, []);
 
   // Also update currentUser when the users list changes (e.g. admin edits my profile)

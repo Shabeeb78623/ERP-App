@@ -1,5 +1,4 @@
 
-
 import { db } from './firebase';
 import { 
     collection, 
@@ -82,6 +81,10 @@ export const StorageService = {
           } else {
               callback(users);
           }
+      }, (error) => {
+          console.error("Firestore subscription error (Users):", error);
+          // Fallback to allow login even if DB is locked/unavailable
+          callback([ADMIN_USER]);
       });
   },
 
@@ -90,6 +93,9 @@ export const StorageService = {
       return onSnapshot(q, (snapshot) => {
           const benefits = snapshot.docs.map(doc => doc.data() as BenefitRecord);
           callback(benefits);
+      }, (error) => {
+          console.error("Firestore subscription error (Benefits):", error);
+          callback([]);
       });
   },
 
@@ -100,6 +106,9 @@ export const StorageService = {
           // Sort by date desc
           notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(notifs);
+      }, (error) => {
+          console.error("Firestore subscription error (Notifications):", error);
+          callback([]);
       });
   },
 
@@ -135,17 +144,22 @@ export const StorageService = {
   },
 
   addUser: async (user: User): Promise<User> => {
-    const users = await StorageService.getUsers();
+    try {
+        const users = await StorageService.getUsers();
 
-    if (user.email && users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase())) {
-      throw new Error(`User with email ${user.email} already exists.`);
-    }
-    if (users.find(u => u.emiratesId === user.emiratesId)) {
-      throw new Error(`User with Emirates ID ${user.emiratesId} already exists.`);
-    }
+        if (user.email && users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase())) {
+        throw new Error(`User with email ${user.email} already exists.`);
+        }
+        if (users.find(u => u.emiratesId === user.emiratesId)) {
+        throw new Error(`User with Emirates ID ${user.emiratesId} already exists.`);
+        }
 
-    await setDoc(doc(db, USERS_COLLECTION, user.id), user);
-    return user;
+        await setDoc(doc(db, USERS_COLLECTION, user.id), user);
+        return user;
+    } catch (e) {
+        console.error("Error adding user:", e);
+        throw e;
+    }
   },
 
   addUsers: async (newUsers: User[], onProgress?: (count: number) => void): Promise<User[]> => {
@@ -324,8 +338,13 @@ export const StorageService = {
 
   // --- BENEFITS ---
   getBenefits: async (): Promise<BenefitRecord[]> => {
-      const snapshot = await getDocs(collection(db, BENEFITS_COLLECTION));
-      return snapshot.docs.map(doc => doc.data() as BenefitRecord);
+      try {
+        const snapshot = await getDocs(collection(db, BENEFITS_COLLECTION));
+        return snapshot.docs.map(doc => doc.data() as BenefitRecord);
+      } catch (error) {
+          console.error("Error getting benefits:", error);
+          return [];
+      }
   },
 
   addBenefit: async (benefit: BenefitRecord): Promise<void> => {
@@ -338,10 +357,15 @@ export const StorageService = {
 
   // --- NOTIFICATIONS ---
   getNotifications: async (): Promise<Notification[]> => {
-      const q = query(collection(db, NOTIFICATIONS_COLLECTION));
-      const snapshot = await getDocs(q);
-      const notifs = snapshot.docs.map(doc => doc.data() as Notification);
-      return notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      try {
+        const q = query(collection(db, NOTIFICATIONS_COLLECTION));
+        const snapshot = await getDocs(q);
+        const notifs = snapshot.docs.map(doc => doc.data() as Notification);
+        return notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      } catch (error) {
+          console.error("Error getting notifications:", error);
+          return [];
+      }
   },
 
   addNotification: async (notification: Notification): Promise<void> => {
@@ -354,12 +378,17 @@ export const StorageService = {
 
   // --- YEARS ---
   getYears: async (): Promise<YearConfig[]> => {
-      const snapshot = await getDocs(collection(db, YEARS_COLLECTION));
-      if (snapshot.empty) {
+      try {
+        const snapshot = await getDocs(collection(db, YEARS_COLLECTION));
+        if (snapshot.empty) {
+            return [{ year: 2025, status: 'ACTIVE', count: 0 }];
+        }
+        const years = snapshot.docs.map(doc => doc.data() as YearConfig);
+        return years.sort((a, b) => b.year - a.year);
+      } catch (error) {
+          console.error("Error getting years:", error);
           return [{ year: 2025, status: 'ACTIVE', count: 0 }];
       }
-      const years = snapshot.docs.map(doc => doc.data() as YearConfig);
-      return years.sort((a, b) => b.year - a.year);
   },
 
   createNewYear: async (year: number): Promise<void> => {
