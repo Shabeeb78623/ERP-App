@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Download, Share2 } from 'lucide-react';
-import { User, UserStatus, CardConfig } from '../types';
+import { Download, Share2, Lock } from 'lucide-react';
+import { User, UserStatus, CardConfig, PaymentStatus } from '../types';
 import { StorageService } from '../services/storageService';
 
 declare global {
@@ -43,14 +43,19 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
     }
   };
 
-  if (user.status !== UserStatus.APPROVED) {
+  // Check if User is Approved AND Payment is Paid
+  if (user.status !== UserStatus.APPROVED || user.paymentStatus !== PaymentStatus.PAID) {
       return (
           <div className="max-w-md mx-auto mt-12 text-center p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
               <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Share2 className="w-8 h-8" />
+                  <Lock className="w-8 h-8" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Card Locked</h3>
-              <p className="text-slate-500 mt-2">Your membership card will be available once your account is approved.</p>
+              <h3 className="text-lg font-bold text-slate-900">Card Unavailable</h3>
+              <p className="text-slate-500 mt-2">
+                  {user.paymentStatus !== PaymentStatus.PAID 
+                      ? "Your membership payment must be approved to access your ID card."
+                      : "Your account is pending approval."}
+              </p>
           </div>
       )
   }
