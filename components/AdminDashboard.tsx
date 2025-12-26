@@ -387,13 +387,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       if(!confirm(`Are you sure you want to start the fiscal year ${year}? This will reset payment status for all users.`)) return;
       try {
           await StorageService.createNewYear(year);
-          // Reset all users to UNPAID
-          const batchPromises = users
-            .filter(u => u.role !== Role.MASTER_ADMIN)
-            .map(u => StorageService.updateUser(u.id, { paymentStatus: PaymentStatus.UNPAID }));
+          // Reset all users to UNPAID using batched update for safety
+          await StorageService.resetAllUserPayments();
           
-          await Promise.all(batchPromises);
-          alert("New Year initialized successfully.");
+          alert("New Year initialized successfully. All users reset to UNPAID.");
+          // Refresh years list
+          setYears(await StorageService.getYears());
       } catch (e: any) {
           alert("Error: " + e.message);
       }
@@ -916,6 +915,47 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       )}
 
       {/* ... (Benefits, Notifications, Import Users, Admin Assign, Reg Questions, New Year tabs same as before) */}
+      
+      {/* NEW YEAR MGMT */}
+      {activeTab === 'New Year' && currentUser.role === Role.MASTER_ADMIN && (
+          <div className="space-y-6">
+              <div className="bg-white p-8 rounded-xl border border-slate-200 text-center">
+                   <Calendar className="w-16 h-16 mx-auto text-primary mb-4" />
+                   <h3 className="text-2xl font-bold text-slate-900">Fiscal Year Management</h3>
+                   <p className="text-slate-500 mb-6 max-w-md mx-auto">Start a new year to archive current records and reset payment status for all members.</p>
+                   
+                   <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-8 text-left max-w-lg mx-auto">
+                       <p className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
+                           <ShieldAlert className="w-4 h-4"/> Warning
+                       </p>
+                       <ul className="list-disc pl-5 text-xs text-amber-700 space-y-1">
+                           <li>Current active year ({years[0]?.year || 2025}) will be archived.</li>
+                           <li>All members' payment status will be reset to <strong>UNPAID</strong>.</li>
+                           <li>This action cannot be undone.</li>
+                       </ul>
+                   </div>
+
+                   <button 
+                      onClick={handleStartNewYear}
+                      className="px-8 py-3 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-lg"
+                   >
+                       Start Fiscal Year {new Date().getFullYear() + 1}
+                   </button>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="p-4 bg-slate-50 border-b font-bold text-slate-700">Year History</div>
+                  {years.map(y => (
+                      <div key={y.year} className="p-4 border-b last:border-0 flex justify-between items-center">
+                          <span className="font-bold text-lg text-slate-800">{y.year}</span>
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${y.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {y.status}
+                          </span>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
 
       {/* 12. CARD MGMT (RESTRICTED TO MASTER ADMIN) */}
       {activeTab === 'Card Mgmt' && currentUser.role === Role.MASTER_ADMIN && (

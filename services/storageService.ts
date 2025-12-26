@@ -220,6 +220,30 @@ export const StorageService = {
     await setDoc(userRef, updates, { merge: true });
   },
 
+  resetAllUserPayments: async (): Promise<void> => {
+    const users = await StorageService.getUsers();
+    // Filter out Master Admin and Hospital Staff, reset everyone else (Users, Custom Admins, Mandalam Admins)
+    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_STAFF);
+    
+    if (eligibleUsers.length === 0) return;
+
+    const batchSize = 400;
+    for (let i = 0; i < eligibleUsers.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = eligibleUsers.slice(i, i + batchSize);
+        chunk.forEach(user => {
+            const ref = doc(db, USERS_COLLECTION, user.id);
+            // Reset status to UNPAID and clear old payment remarks
+            batch.update(ref, { 
+                paymentStatus: PaymentStatus.UNPAID,
+                paymentRemarks: '' 
+            });
+        });
+        await batch.commit();
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  },
+
   // --- UTILS ---
   getNextSequence: async (year: number): Promise<number> => {
       const users = await StorageService.getUsers();
@@ -429,10 +453,17 @@ export const StorageService = {
       if (years.find(y => y.year === year)) {
           throw new Error("Year already exists");
       }
-      const archivePromises = years.map(y => 
-          updateDoc(doc(db, YEARS_COLLECTION, y.year.toString()), { status: 'ARCHIVED' })
-      );
+      
+      // Archive existing years safely (create if not exists)
+      const archivePromises = years.map(y => {
+          // If the year comes from fallback, it might not have all fields if we just update status.
+          // Safe approach: set the whole object ensuring status is ARCHIVED
+          const archivedYear: YearConfig = { ...y, status: 'ARCHIVED' };
+          return setDoc(doc(db, YEARS_COLLECTION, y.year.toString()), archivedYear);
+      });
       await Promise.all(archivePromises);
+      
+      // Create new year
       const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
       await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
   },
