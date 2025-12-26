@@ -1,4 +1,3 @@
-
 import { db } from './firebase';
 import { 
     collection, 
@@ -125,6 +124,20 @@ export const StorageService = {
         console.error("Error fetching users:", error);
         return [ADMIN_USER];
     }
+  },
+
+  getUserById: async (id: string): Promise<User | null> => {
+      try {
+          const docRef = doc(db, USERS_COLLECTION, id);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+              return docSnap.data() as User;
+          }
+          return null;
+      } catch (error) {
+          console.error("Error fetching user:", error);
+          return null;
+      }
   },
 
   findUserForLogin: async (identifier: string): Promise<User | undefined> => {
@@ -414,7 +427,25 @@ export const StorageService = {
           const docRef = doc(db, SETTINGS_COLLECTION, 'card_config');
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-              return docSnap.data() as CardConfig;
+              const data = docSnap.data();
+              // Migration check: if old structure (no front/back), migrate it
+              if (data.templateImage && !data.front) {
+                   return {
+                       front: {
+                           templateImage: data.templateImage,
+                           fields: data.fields || [],
+                           width: data.width || 800,
+                           height: data.height || 500
+                       },
+                       back: {
+                           templateImage: '',
+                           fields: [],
+                           width: 800,
+                           height: 500
+                       }
+                   };
+              }
+              return data as CardConfig;
           }
           return null;
       } catch (e) {

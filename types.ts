@@ -1,5 +1,4 @@
 
-
 export enum Role {
   MASTER_ADMIN = 'MASTER_ADMIN',
   MANDALAM_ADMIN = 'MANDALAM_ADMIN',
@@ -154,14 +153,20 @@ export interface CardField {
     fontSize: number;
     color: string;
     fontWeight: 'normal' | 'bold';
+    type?: 'TEXT' | 'QR'; // New field type
     sampleValue: string; // For preview
 }
 
-export interface CardConfig {
+export interface CardSideConfig {
     templateImage: string; // Base64
     fields: CardField[];
     width: number; // Original width of template
     height: number; // Original height of template
+}
+
+export interface CardConfig {
+    front: CardSideConfig;
+    back: CardSideConfig;
 }
 
 export type ViewState = 'DASHBOARD' | 'USERS' | 'PAYMENTS' | 'BENEFITS' | 'COMMUNICATIONS' | 'CARD' | 'AUTH' | 'ACCOUNT' | 'NOTIFICATIONS';

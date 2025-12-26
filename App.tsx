@@ -5,6 +5,7 @@ import AdminDashboard from './components/AdminDashboard';
 import Communications from './components/Communications';
 import MembershipCard from './components/MembershipCard';
 import Auth from './components/Auth';
+import VerificationView from './components/VerificationView'; // Import Verification View
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
 import { initializeAuth } from './services/firebase';
@@ -20,6 +21,9 @@ const App: React.FC = () => {
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'USER'>('USER');
 
+  // New State for Verification
+  const [verificationId, setVerificationId] = useState<string | null>(null);
+
   const [isProfileCompletionOpen, setIsProfileCompletionOpen] = useState(false);
   const [completionForm, setCompletionForm] = useState({
       email: '',
@@ -32,6 +36,15 @@ const App: React.FC = () => {
 
   // --- SESSION PERSISTENCE & REAL-TIME SYNC ---
   useEffect(() => {
+    // 0. Check for Verification URL Param immediately
+    const params = new URLSearchParams(window.location.search);
+    const verifyId = params.get('verify');
+    if (verifyId) {
+        setVerificationId(verifyId);
+        setIsLoading(false);
+        return; // Skip normal auth flow if verifying
+    }
+
     let unsubscribeUsers: () => void;
     let unsubscribeBenefits: () => void;
     let unsubscribeNotifs: () => void;
@@ -262,8 +275,15 @@ const App: React.FC = () => {
       setCurrentView('DASHBOARD');
   };
 
-  const renderContent = () => {
-    if (isLoading && !currentUser) { 
+  // --- RENDER CONTENT ---
+  
+  // 1. Verification Mode
+  if (verificationId) {
+      return <VerificationView userId={verificationId} />;
+  }
+
+  // 2. Loading State
+  if (isLoading && !currentUser) { 
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
                 <div className="animate-spin text-primary text-4xl mb-4">
@@ -274,6 +294,7 @@ const App: React.FC = () => {
         )
     }
 
+  const renderContent = () => {
     if (!currentUser || currentView === 'AUTH') {
       return <Auth onLogin={handleLogin} onRegister={handleRegister} isLoading={isLoading} />;
     }

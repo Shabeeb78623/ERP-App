@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2 } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -120,6 +120,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   // Card Management
   const [cardConfig, setCardConfig] = useState<CardConfig | null>(null);
+  const [activeCardSide, setActiveCardSide] = useState<'front' | 'back'>('front');
   const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
   const [selectedVariable, setSelectedVariable] = useState<string>(''); 
   const cardImageRef = useRef<HTMLImageElement>(null);
@@ -452,14 +453,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               const base64 = reader.result as string;
               const img = new Image();
               img.onload = async () => {
-                  const newConfig: CardConfig = {
+                  let updatedConfig = cardConfig;
+                  
+                  // Initialize if null
+                  if (!updatedConfig) {
+                      updatedConfig = {
+                          front: { templateImage: '', fields: [], width: 800, height: 500 },
+                          back: { templateImage: '', fields: [], width: 800, height: 500 }
+                      };
+                  }
+
+                  const newSideConfig = {
                       templateImage: base64,
-                      fields: cardConfig?.fields || [],
+                      fields: updatedConfig[activeCardSide].fields || [],
                       width: img.width,
                       height: img.height
                   };
-                  await StorageService.saveCardConfig(newConfig);
-                  setCardConfig(newConfig);
+
+                  updatedConfig = {
+                      ...updatedConfig,
+                      [activeCardSide]: newSideConfig
+                  };
+
+                  await StorageService.saveCardConfig(updatedConfig);
+                  setCardConfig(updatedConfig);
                   setIsUploadingTemplate(false);
               };
               img.src = base64;
@@ -474,6 +491,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       let label = "Unknown";
       let key = selectedVariable;
       let sample = "Sample Text";
+      let type: 'TEXT' | 'QR' = 'TEXT';
 
       if (key === 'membershipNo') {
           label = 'Registration No';
@@ -481,6 +499,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       } else if (key === 'registrationDate') {
           label = 'Joined Date';
           sample = '01/01/2025';
+      } else if (key === 'qr_code_verify') {
+          label = 'Verification QR Code';
+          sample = 'QR';
+          type = 'QR';
       } else {
           const q = questions.find(q => q.id === key);
           if (q) {
@@ -499,10 +521,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           fontSize: 14,
           color: '#000000',
           fontWeight: 'bold',
-          sampleValue: sample
+          sampleValue: sample,
+          type
       };
 
-      const updatedConfig = { ...cardConfig, fields: [...cardConfig.fields, newField] };
+      const updatedSide = {
+          ...cardConfig[activeCardSide],
+          fields: [...cardConfig[activeCardSide].fields, newField]
+      };
+
+      const updatedConfig = { ...cardConfig, [activeCardSide]: updatedSide };
       setCardConfig(updatedConfig);
       await StorageService.saveCardConfig(updatedConfig);
       setSelectedVariable('');
@@ -510,17 +538,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   const updateCardField = async (id: string, updates: Partial<CardField>) => {
       if (!cardConfig) return;
-      const updatedConfig = { 
-          ...cardConfig, 
-          fields: cardConfig.fields.map(f => f.id === id ? { ...f, ...updates } : f) 
+      const updatedSide = { 
+          ...cardConfig[activeCardSide], 
+          fields: cardConfig[activeCardSide].fields.map(f => f.id === id ? { ...f, ...updates } : f) 
       };
+      const updatedConfig = { ...cardConfig, [activeCardSide]: updatedSide };
       setCardConfig(updatedConfig);
       await StorageService.saveCardConfig(updatedConfig);
   };
 
   const deleteCardField = async (id: string) => {
       if (!cardConfig) return;
-      const updatedConfig = { ...cardConfig, fields: cardConfig.fields.filter(f => f.id !== id) };
+      const updatedSide = { ...cardConfig[activeCardSide], fields: cardConfig[activeCardSide].fields.filter(f => f.id !== id) };
+      const updatedConfig = { ...cardConfig, [activeCardSide]: updatedSide };
       setCardConfig(updatedConfig);
       await StorageService.saveCardConfig(updatedConfig);
   };
@@ -538,9 +568,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       let xPct = Math.max(0, Math.min(100, (x / rect.width) * 100));
       let yPct = Math.max(0, Math.min(100, (y / rect.height) * 100));
       
+      const updatedSide = {
+          ...cardConfig[activeCardSide],
+          fields: cardConfig[activeCardSide].fields.map(f => f.id === draggedFieldId ? { ...f, x: xPct, y: yPct } : f)
+      };
+
       setCardConfig({
           ...cardConfig,
-          fields: cardConfig.fields.map(f => f.id === draggedFieldId ? { ...f, x: xPct, y: yPct } : f)
+          [activeCardSide]: updatedSide
       });
   };
 
@@ -976,18 +1011,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                               <LayoutTemplate className="w-5 h-5 text-primary" />
                               ID Card Designer
                           </h3>
-                          <p className="text-slate-500 text-sm mt-1">Upload a background and drag variables to position them.</p>
+                          <p className="text-slate-500 text-sm mt-1">Upload front and back backgrounds and drag variables to position them.</p>
                       </div>
-                      <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm">
-                          <ImagePlus className="w-4 h-4" />
-                          {isUploadingTemplate ? 'Uploading...' : 'Upload Template'}
-                          <input type="file" accept="image/*" className="hidden" onChange={handleTemplateUpload} disabled={isUploadingTemplate} />
-                      </label>
+                      <div className="flex gap-4">
+                          <div className="bg-slate-100 rounded-lg p-1 flex">
+                               <button 
+                                 onClick={() => setActiveCardSide('front')}
+                                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'front' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}
+                               >
+                                   Front Side
+                               </button>
+                               <button 
+                                 onClick={() => setActiveCardSide('back')}
+                                 className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'back' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}
+                               >
+                                   Back Side
+                               </button>
+                          </div>
+                          <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm">
+                              <ImagePlus className="w-4 h-4" />
+                              {isUploadingTemplate ? 'Uploading...' : 'Upload Template'}
+                              <input type="file" accept="image/*" className="hidden" onChange={handleTemplateUpload} disabled={isUploadingTemplate} />
+                          </label>
+                      </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                       <div className="lg:col-span-2 bg-slate-100 rounded-xl p-4 border border-slate-200 flex items-center justify-center min-h-[400px] select-none">
-                          {cardConfig?.templateImage ? (
+                          {cardConfig && cardConfig[activeCardSide].templateImage ? (
                               <div 
                                 className="relative shadow-2xl inline-block"
                                 onMouseMove={handleContainerMouseMove}
@@ -996,11 +1047,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                               >
                                   <img 
                                       ref={cardImageRef}
-                                      src={cardConfig.templateImage} 
+                                      src={cardConfig[activeCardSide].templateImage} 
                                       alt="Card Template" 
                                       className="max-w-full h-auto rounded-lg pointer-events-none" 
                                   />
-                                  {cardConfig.fields.map(field => (
+                                  {cardConfig[activeCardSide].fields.map(field => (
                                       <div 
                                         key={field.id}
                                         onMouseDown={(e) => handleDragStart(e, field.id)}
@@ -1020,21 +1071,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                         }}
                                         className="hover:border-slate-400 hover:bg-white/20 transition-colors"
                                       >
-                                          {field.sampleValue}
+                                          {field.type === 'QR' ? (
+                                              <div className="w-16 h-16 bg-white flex items-center justify-center border border-slate-300">
+                                                  <QrCode className="w-10 h-10 text-slate-800" />
+                                              </div>
+                                          ) : field.sampleValue}
                                       </div>
                                   ))}
                               </div>
                           ) : (
                               <div className="text-center text-slate-400">
                                   <LayoutTemplate className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                                  <p>No template uploaded.</p>
+                                  <p>No template uploaded for {activeCardSide} side.</p>
                               </div>
                           )}
                       </div>
 
                       <div className="space-y-6">
                           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                              <h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable</h4>
+                              <h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide}</h4>
                               <div className="flex gap-2">
                                   <select 
                                       className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none"
@@ -1044,6 +1099,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                       <option value="">-- Select Variable --</option>
                                       <option value="membershipNo">Registration No (ID)</option>
                                       <option value="registrationDate">Joined Date</option>
+                                      <option value="qr_code_verify" className="font-bold">🔳 QR Code (Verification)</option>
                                       <optgroup label="Registration Questions">
                                           {questions.map(q => (
                                               <option key={q.id} value={q.id}>{q.label}</option>
@@ -1061,16 +1117,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                           </div>
                           {/* List existing variables */}
                            <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                              {cardConfig?.fields.map(field => (
+                              {cardConfig?.[activeCardSide].fields.map(field => (
                                   <div key={field.id} className="bg-white p-3 rounded-lg border border-slate-200">
                                       <div className="flex justify-between items-center mb-1">
-                                           <span className="font-bold text-xs">{field.label}</span>
+                                           <span className="font-bold text-xs flex items-center gap-1">
+                                                {field.type === 'QR' && <QrCode className="w-3 h-3 text-blue-500" />}
+                                                {field.label}
+                                           </span>
                                            <button onClick={() => deleteCardField(field.id)} className="text-red-400"><X className="w-3 h-3"/></button>
                                       </div>
-                                      <div className="grid grid-cols-2 gap-2">
-                                           <input type="number" className="w-full text-xs border rounded" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} />
-                                           <input type="color" className="w-full h-5 border rounded p-0" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} />
-                                      </div>
+                                      {field.type !== 'QR' && (
+                                          <div className="grid grid-cols-2 gap-2">
+                                              <input type="number" className="w-full text-xs border rounded" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} />
+                                              <input type="color" className="w-full h-5 border rounded p-0" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} />
+                                          </div>
+                                      )}
                                   </div>
                               ))}
                            </div>
