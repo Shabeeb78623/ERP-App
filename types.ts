@@ -3,6 +3,7 @@ export enum Role {
   MASTER_ADMIN = 'MASTER_ADMIN',
   MANDALAM_ADMIN = 'MANDALAM_ADMIN',
   CUSTOM_ADMIN = 'CUSTOM_ADMIN',
+  HOSPITAL_STAFF = 'HOSPITAL_STAFF', // New Role
   USER = 'USER',
 }
 
@@ -125,6 +126,17 @@ export interface BenefitRecord {
   remarks: string;
   userName?: string; 
   regNo?: string;
+}
+
+export interface HospitalVisit {
+    id: string;
+    userId: string;
+    hospitalId: string;
+    hospitalName: string; // The specific hospital (Ahalia, LLH, etc.)
+    details: string; // The benefits used (typed out)
+    date: string;
+    time: string;
+    timestamp: number;
 }
 
 export interface Notification {

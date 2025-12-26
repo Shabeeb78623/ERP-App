@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
-import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion, HospitalVisit } from '../types';
+import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, Stethoscope } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
@@ -14,17 +14,22 @@ interface UserDashboardProps {
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
+  const [hospitalVisits, setHospitalVisits] = useState<HospitalVisit[]>([]);
 
   useEffect(() => {
       StorageService.getQuestions().then(qs => setQuestions(qs));
-  }, []);
+      // Subscribe to hospital visits for this user
+      const unsubscribe = StorageService.subscribeToHospitalVisits((visits) => {
+          setHospitalVisits(visits.filter(v => v.userId === user.id));
+      });
+      return () => unsubscribe();
+  }, [user.id]);
 
   const handlePaymentSubmit = () => {
       if (!paymentRemarks.trim()) {
           alert("Please enter transaction details or remarks.");
           return;
       }
-      // Set status to PENDING upon submission, not PAID
       onUpdateUser(user.id, { 
           paymentStatus: PaymentStatus.PENDING,
           paymentRemarks: paymentRemarks
@@ -33,7 +38,6 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
       setPaymentRemarks('');
   };
 
-  // Function to map custom data ID to Label
   const getLabel = (id: string) => {
       const q = questions.find(quest => quest.id === id);
       return q ? q.label : id;
@@ -123,11 +127,34 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                                 ? 'Your dues are cleared for this year.' 
                                 : 'Admin is reviewing your payment submission. Status will be updated shortly.'}
                         </p>
-                        {user.paymentStatus === PaymentStatus.PENDING && user.paymentRemarks && (
-                            <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-600 border border-slate-100">
-                                <strong>Your Submission:</strong> {user.paymentRemarks}
+                    </div>
+                )}
+            </div>
+
+            {/* Hospital Visits History */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <Stethoscope className="w-6 h-6" />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900">Hospital Visits</h2>
+                </div>
+                
+                {hospitalVisits.length > 0 ? (
+                    <div className="space-y-4">
+                        {hospitalVisits.map(visit => (
+                            <div key={visit.id} className="p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
+                                <div className="flex justify-between items-start mb-2">
+                                    <h4 className="font-bold text-slate-900">{visit.hospitalName}</h4>
+                                    <span className="text-xs text-slate-500">{visit.date} • {visit.time}</span>
+                                </div>
+                                <p className="text-sm text-slate-700">{visit.details}</p>
                             </div>
-                        )}
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-slate-400">
+                        <p>No hospital visits recorded.</p>
                     </div>
                 )}
             </div>
@@ -171,11 +198,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          <p className="text-sm font-medium text-slate-900">{user.emiratesId}</p>
                      </div>
 
-                     {/* Dynamic Custom Data Display */}
                      {user.customData && Object.entries(user.customData).map(([key, val]) => {
                          if(!val) return null;
                          const label = getLabel(key);
-                         // Don't repeat standard fields if handled above
                          if(['email','mobile','emirates id'].includes(label.toLowerCase())) return null;
 
                          return (

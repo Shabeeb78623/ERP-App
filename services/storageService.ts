@@ -9,14 +9,16 @@ import {
     query, 
     onSnapshot,
     writeBatch,
-    getDoc
+    getDoc,
+    where
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig, HospitalVisit } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
+const HOSPITAL_VISITS_COLLECTION = 'hospital_visits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
@@ -94,6 +96,19 @@ export const StorageService = {
           callback(benefits);
       }, (error) => {
           console.error("Firestore subscription error (Benefits):", error);
+          callback([]);
+      });
+  },
+
+  subscribeToHospitalVisits: (callback: (visits: HospitalVisit[]) => void) => {
+      const q = query(collection(db, HOSPITAL_VISITS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const visits = snapshot.docs.map(doc => doc.data() as HospitalVisit);
+          // Sort by timestamp desc
+          visits.sort((a, b) => b.timestamp - a.timestamp);
+          callback(visits);
+      }, (error) => {
+          console.error("Firestore subscription error (Hospital Visits):", error);
           callback([]);
       });
   },
@@ -209,7 +224,7 @@ export const StorageService = {
   getNextSequence: async (year: number): Promise<number> => {
       const users = await StorageService.getUsers();
       const yearPrefix = year.toString();
-      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
+      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_STAFF);
       
       if (relevantUsers.length === 0) return 1;
 
@@ -368,6 +383,11 @@ export const StorageService = {
       await deleteDoc(doc(db, BENEFITS_COLLECTION, id));
   },
 
+  // --- HOSPITAL VISITS ---
+  addHospitalVisit: async (visit: HospitalVisit): Promise<void> => {
+      await setDoc(doc(db, HOSPITAL_VISITS_COLLECTION, visit.id), visit);
+  },
+
   // --- NOTIFICATIONS ---
   getNotifications: async (): Promise<Notification[]> => {
       try {
@@ -456,7 +476,7 @@ export const StorageService = {
 
   // --- DANGER ZONE: RESET ---
   resetDatabase: async (): Promise<void> => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, HOSPITAL_VISITS_COLLECTION];
       
       // 1. Delete all documents in all collections using batched deletion
       for (const colName of collections) {
