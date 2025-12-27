@@ -9,16 +9,14 @@ import {
     query, 
     onSnapshot,
     writeBatch,
-    getDoc,
-    where
+    getDoc
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig, HospitalVisit } from '../types';
+import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
-const HOSPITAL_VISITS_COLLECTION = 'hospital_visits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
@@ -96,19 +94,6 @@ export const StorageService = {
           callback(benefits);
       }, (error) => {
           console.error("Firestore subscription error (Benefits):", error);
-          callback([]);
-      });
-  },
-
-  subscribeToHospitalVisits: (callback: (visits: HospitalVisit[]) => void) => {
-      const q = query(collection(db, HOSPITAL_VISITS_COLLECTION));
-      return onSnapshot(q, (snapshot) => {
-          const visits = snapshot.docs.map(doc => doc.data() as HospitalVisit);
-          // Sort by timestamp desc
-          visits.sort((a, b) => b.timestamp - a.timestamp);
-          callback(visits);
-      }, (error) => {
-          console.error("Firestore subscription error (Hospital Visits):", error);
           callback([]);
       });
   },
@@ -221,34 +206,43 @@ export const StorageService = {
   },
 
   resetAllUserPayments: async (): Promise<void> => {
+    console.log("Starting bulk payment reset...");
     const users = await StorageService.getUsers();
     // Filter out Master Admin and Hospital Staff, reset everyone else (Users, Custom Admins, Mandalam Admins)
-    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_STAFF);
+    // Only process users that have a valid ID
+    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.id);
     
+    console.log(`Found ${eligibleUsers.length} users to reset.`);
     if (eligibleUsers.length === 0) return;
 
     const batchSize = 400;
     for (let i = 0; i < eligibleUsers.length; i += batchSize) {
         const batch = writeBatch(db);
         const chunk = eligibleUsers.slice(i, i + batchSize);
+        
         chunk.forEach(user => {
-            const ref = doc(db, USERS_COLLECTION, user.id);
-            // Reset status to UNPAID and clear old payment remarks
-            batch.update(ref, { 
-                paymentStatus: PaymentStatus.UNPAID,
-                paymentRemarks: '' 
-            });
+            if (user.id) {
+                const ref = doc(db, USERS_COLLECTION, user.id);
+                // Use set with merge: true which is safer than update if a doc is missing fields
+                batch.set(ref, { 
+                    paymentStatus: PaymentStatus.UNPAID,
+                    paymentRemarks: '' 
+                }, { merge: true });
+            }
         });
+        
+        console.log(`Committing batch ${i / batchSize + 1}...`);
         await batch.commit();
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+    console.log("Bulk payment reset complete.");
   },
 
   // --- UTILS ---
   getNextSequence: async (year: number): Promise<number> => {
       const users = await StorageService.getUsers();
       const yearPrefix = year.toString();
-      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_STAFF);
+      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
       
       if (relevantUsers.length === 0) return 1;
 
@@ -407,11 +401,6 @@ export const StorageService = {
       await deleteDoc(doc(db, BENEFITS_COLLECTION, id));
   },
 
-  // --- HOSPITAL VISITS ---
-  addHospitalVisit: async (visit: HospitalVisit): Promise<void> => {
-      await setDoc(doc(db, HOSPITAL_VISITS_COLLECTION, visit.id), visit);
-  },
-
   // --- NOTIFICATIONS ---
   getNotifications: async (): Promise<Notification[]> => {
       try {
@@ -454,10 +443,10 @@ export const StorageService = {
           throw new Error("Year already exists");
       }
       
-      // Archive existing years safely (create if not exists)
+      console.log(`Archiving old years and creating new year: ${year}`);
+      
+      // Archive existing years safely
       const archivePromises = years.map(y => {
-          // If the year comes from fallback, it might not have all fields if we just update status.
-          // Safe approach: set the whole object ensuring status is ARCHIVED
           const archivedYear: YearConfig = { ...y, status: 'ARCHIVED' };
           return setDoc(doc(db, YEARS_COLLECTION, y.year.toString()), archivedYear);
       });
@@ -466,6 +455,7 @@ export const StorageService = {
       // Create new year
       const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
       await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
+      console.log(`Year ${year} created.`);
   },
   
   // --- CARD CONFIG ---
@@ -507,7 +497,7 @@ export const StorageService = {
 
   // --- DANGER ZONE: RESET ---
   resetDatabase: async (): Promise<void> => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, HOSPITAL_VISITS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION];
       
       // 1. Delete all documents in all collections using batched deletion
       for (const colName of collections) {

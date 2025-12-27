@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
 import AdminDashboard from './components/AdminDashboard';
-import HospitalDashboard from './components/HospitalDashboard';
 import Communications from './components/Communications';
 import MembershipCard from './components/MembershipCard';
 import Auth from './components/Auth';
@@ -75,7 +74,7 @@ const App: React.FC = () => {
                 const user = allUsers.find(u => u.id === storedUserId);
                 if (user) {
                     setCurrentUser(user);
-                    if (user.role === Role.MASTER_ADMIN || user.role === Role.MANDALAM_ADMIN || user.role === Role.CUSTOM_ADMIN) {
+                    if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
                         setViewMode('ADMIN');
                     } else {
                         setViewMode('USER');
@@ -158,11 +157,7 @@ const App: React.FC = () => {
             setCurrentUser(user);
             localStorage.setItem('vadakara_session_user_id', user.id); // Save session
             
-            // Determine View Mode
-            if (user.role === Role.HOSPITAL_STAFF) {
-                // Hospital staff has no view mode toggle, just direct dashboard
-                setViewMode('USER'); // Technically user mode but renders HospitalDashboard
-            } else if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
+            if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
                 setViewMode('ADMIN');
             } else {
                 setViewMode('USER');
@@ -274,7 +269,7 @@ const App: React.FC = () => {
 
   const toggleViewMode = () => {
       // Allow assigned admins to switch, but restrict the System Admin (Shabeeb/admin-master)
-      if (currentUser?.role === Role.USER || currentUser?.id === 'admin-master' || currentUser?.role === Role.HOSPITAL_STAFF) return; 
+      if (currentUser?.role === Role.USER || currentUser?.id === 'admin-master') return; 
       
       setViewMode(prev => prev === 'ADMIN' ? 'USER' : 'ADMIN');
       setCurrentView('DASHBOARD');
@@ -302,11 +297,6 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (!currentUser || currentView === 'AUTH') {
       return <Auth onLogin={handleLogin} onRegister={handleRegister} isLoading={isLoading} />;
-    }
-
-    // Special Route for Hospital Staff
-    if (currentUser.role === Role.HOSPITAL_STAFF) {
-        return <HospitalDashboard currentUser={currentUser} users={users} onLogout={handleLogout} />;
     }
 
     if (viewMode === 'USER') {
@@ -353,11 +343,6 @@ const App: React.FC = () => {
         }
     }
   };
-
-  // If user is Hospital Staff, don't show the standard Layout with Nav
-  if (currentUser?.role === Role.HOSPITAL_STAFF) {
-      return renderContent();
-  }
 
   return (
     <Layout 

@@ -46,6 +46,7 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
     }
   };
 
+  // Check if User is Approved AND Payment is Paid
   if (user.status !== UserStatus.APPROVED || user.paymentStatus !== PaymentStatus.PAID) {
       return (
           <div className="max-w-md mx-auto mt-12 text-center p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
@@ -66,19 +67,29 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
   const renderCardSide = (sideConfig: CardSideConfig, ref: React.RefObject<HTMLDivElement>, sideName: string) => {
       if (!sideConfig.templateImage) return null;
       
-      const displayName = sideName === 'front' ? 'Ahalia Card' : 'LLH Card';
+      const displayName = sideName === 'front' ? 'Card 1' : 'Card 2';
 
       return (
         <div className="flex flex-col items-center gap-4">
              <div 
-                ref={ref as any} 
+                ref={ref as any} // Cast to any to avoid type complaints with null initialized refs
                 className="relative shadow-2xl rounded-xl overflow-hidden inline-block"
             >
                 <img src={sideConfig.templateImage} alt={`${displayName} Template`} className="max-w-full h-auto block" />
                 
+                {/* Render Fields */}
                 {sideConfig.fields.map(field => {
+                    // QR Code Special Handling
                     if (field.type === 'QR') {
+                        // Generate QR Data URL
                         const verifyUrl = `${window.location.origin}?verify=${user.id}`;
+                        // We use a React Effect style logic inside mapping or just use sync version if possible.
+                        // QRCode.toDataURL is async usually. 
+                        // To keep it simple in render, we can use a canvas or sync generation if library supports, 
+                        // BUT standard lib is async.
+                        // For simplicity in this component, let's use an <img> with a data URI generated via a component wrapper
+                        // Or just render a QR component.
+                        
                         return (
                              <div
                                 key={field.id}
@@ -87,23 +98,15 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
                                     left: `${field.x}%`,
                                     top: `${field.y}%`,
                                     transform: 'translate(-50%, -50%)',
-                                    zIndex: 10,
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
+                                    zIndex: 10
                                 }}
                             >
-                                <div className="bg-white p-1">
-                                    <QRCodeImage text={verifyUrl} width={64} />
-                                </div>
-                                <div className="bg-white px-2 py-0.5 mt-1 text-[10px] font-bold text-slate-900 rounded shadow-sm">
-                                    {user.membershipNo}
-                                </div>
+                                <QRCodeImage text={verifyUrl} width={64} />
                             </div>
                         );
                     }
 
+                    // Text Field Logic
                     let value = '';
                     if (field.key in user) {
                         value = String((user as any)[field.key] || '');
@@ -166,6 +169,7 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
   );
 };
 
+// Internal component to handle async QR generation safely
 const QRCodeImage = ({ text, width }: { text: string, width: number }) => {
     const [src, setSrc] = useState('');
     

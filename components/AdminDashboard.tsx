@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, Building2 } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -31,7 +31,7 @@ interface AdminDashboardProps {
 }
 
 const ALL_TABS = [
-  'User Approvals', 'Users Overview', 'Hospital Mgmt', 'Payment Mgmt', 'Payment Subs', 
+  'User Approvals', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
   'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
 ];
 
@@ -72,7 +72,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [showAddHospitalModal, setShowAddHospitalModal] = useState(false);
   
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -80,6 +79,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [importProgress, setImportProgress] = useState(0);
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
   const [years, setYears] = useState<YearConfig[]>([]);
+  
+  // New Year processing state
+  const [isProcessingYear, setIsProcessingYear] = useState(false);
 
   // Forms
   const [notifTitle, setNotifTitle] = useState('');
@@ -112,11 +114,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       mandalam: Mandalam.VATAKARA,
       emirate: Emirate.DUBAI
   });
-  const [newHospitalForm, setNewHospitalForm] = useState({
-      name: '',
-      email: '',
-      password: ''
-  });
 
   // Admin Assignment
   const [selectedUserForAdmin, setSelectedUserForAdmin] = useState<User | null>(null);
@@ -139,7 +136,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // Filter Tabs based on Role
   const visibleTabs = ALL_TABS.filter(tab => {
       // Restricted tabs only for Master Admin
-      if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Import Users', 'Hospital Mgmt'].includes(tab)) {
+      if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Import Users'].includes(tab)) {
           return currentUser.role === Role.MASTER_ADMIN;
       }
       return true;
@@ -218,7 +215,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // --- FILTERED DATA LOGIC ---
   const getAuthorizedUsers = () => {
     // Hide master admin from lists
-    const realUsers = users.filter(u => u.id !== 'admin-master' && u.role !== Role.HOSPITAL_STAFF);
+    const realUsers = users.filter(u => u.id !== 'admin-master');
     if (currentUser.role === Role.MASTER_ADMIN) return realUsers;
     if (currentUser.role === Role.MANDALAM_ADMIN) {
         const allowed = currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0 
@@ -235,13 +232,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
     return [];
   };
 
-  const getHospitalAccounts = () => {
-      return users.filter(u => u.role === Role.HOSPITAL_STAFF);
-  };
-
   const authorizedUsers = getAuthorizedUsers();
-  const hospitalAccounts = getHospitalAccounts();
-  
   const filteredList = authorizedUsers.filter(u => {
       const term = searchTerm.toLowerCase();
       return (
@@ -314,138 +305,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setBenefitForm({ userId: '', type: BenefitType.HOSPITAL, amount: '', remarks: '' });
   };
 
-  const handleAddHospital = async () => {
-      if(!newHospitalForm.name || !newHospitalForm.email || !newHospitalForm.password) return alert("Fill all fields");
-      
-      const hospitalUser: User = {
-          id: `hosp-${Date.now()}`,
-          fullName: newHospitalForm.name,
-          email: newHospitalForm.email,
-          password: newHospitalForm.password,
-          role: Role.HOSPITAL_STAFF,
-          mobile: '0000000000',
-          whatsapp: '',
-          emiratesId: '000',
-          mandalam: Mandalam.VATAKARA,
-          emirate: Emirate.DUBAI,
-          status: UserStatus.APPROVED,
-          paymentStatus: PaymentStatus.PAID,
-          registrationYear: 2025,
-          photoUrl: '',
-          membershipNo: 'HOSP',
-          registrationDate: new Date().toLocaleDateString(),
-          isImported: false
-      };
-
-      try {
-          await StorageService.addUser(hospitalUser);
-          setShowAddHospitalModal(false);
-          setNewHospitalForm({ name: '', email: '', password: '' });
-          alert("Hospital Account Created.");
-      } catch (e) {
-          console.error(e);
-          alert("Failed to create hospital account.");
-      }
-  };
-
-  // ... (Other handlers same as before)
-  
-  const handleAddNewUser = async () => {
-      if(!newUserForm.fullName || !newUserForm.mobile) return alert("Name and Mobile are required");
-      try {
-          const currentYear = new Date().getFullYear();
-          const nextSeq = await StorageService.getNextSequence(currentYear);
-          const membershipNo = `${currentYear}${nextSeq.toString().padStart(4, '0')}`;
-          
-          const newUser: User = {
-              ...newUserForm as User,
-              id: `user-${Date.now()}`,
-              membershipNo,
-              registrationYear: currentYear,
-              registrationDate: new Date().toLocaleDateString(),
-              password: newUserForm.emiratesId || 'password',
-              photoUrl: '',
-              isImported: true,
-              approvedBy: currentUser.fullName,
-              approvedAt: new Date().toLocaleDateString(),
-              whatsapp: newUserForm.mobile || '',
-              emiratesId: newUserForm.emiratesId || `784${Date.now()}`
-          };
-          
-          await StorageService.addUser(newUser);
-          setShowAddUserModal(false);
-          setNewUserForm({ role: Role.USER, status: UserStatus.APPROVED, paymentStatus: PaymentStatus.UNPAID, mandalam: Mandalam.VATAKARA, emirate: Emirate.DUBAI });
-          alert("User added successfully.");
-      } catch(e: any) {
-          alert(e.message);
-      }
-  };
-
-  // ... (Import, New Year, Admin Assign handlers same as before) ...
-  const handleStartNewYear = async () => {
-      const year = new Date().getFullYear() + 1;
-      if(!confirm(`Are you sure you want to start the fiscal year ${year}? This will reset payment status for all users.`)) return;
-      try {
-          await StorageService.createNewYear(year);
-          // Reset all users to UNPAID using batched update for safety
-          await StorageService.resetAllUserPayments();
-          
-          alert("New Year initialized successfully. All users reset to UNPAID.");
-          // Refresh years list
-          setYears(await StorageService.getYears());
-      } catch (e: any) {
-          alert("Error: " + e.message);
-      }
-  };
-  
-  const handleImportUsers = async () => {
-      if (!importFile) return;
-      setIsImporting(true); setImportProgress(0);
-      try {
-          const text = await importFile.text();
-          const lines = text.split('\n').filter(l => l.trim());
-          const newUsers: User[] = [];
-          const currentYear = new Date().getFullYear();
-          let currentSeq = await StorageService.getNextSequence(currentYear);
-          const startIdx = lines[0].toLowerCase().includes('name') ? 1 : 0;
-          for (let i = startIdx; i < lines.length; i++) {
-               const cols = lines[i].split(',');
-               if (cols.length >= 2) {
-                   const generatedRegNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
-                   newUsers.push({
-                       id: `user-${Date.now()}-${i}`,
-                       fullName: cols[0]?.trim() || 'Unknown',
-                       emiratesId: cols[1]?.trim() || `784${Date.now()}${i}`,
-                       mobile: cols[2]?.trim() || '',
-                       whatsapp: cols[2]?.trim() || '',
-                       emirate: (cols[3]?.trim() as Emirate) || Emirate.DUBAI,
-                       mandalam: (cols[4]?.trim() as Mandalam) || Mandalam.VATAKARA,
-                       registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), 
-                       status: UserStatus.APPROVED,
-                       paymentStatus: PaymentStatus.UNPAID,
-                       role: Role.USER,
-                       registrationYear: currentYear,
-                       membershipNo: generatedRegNo,
-                       password: cols[1]?.trim() || 'password', 
-                       photoUrl: '',
-                       isImported: true,
-                       approvedBy: currentUser.fullName,
-                       approvedAt: new Date().toLocaleDateString()
-                   });
-                   currentSeq++;
-               }
-          }
-          await StorageService.addUsers(newUsers, setImportProgress);
-          alert(`Successfully imported ${newUsers.length} users.`);
-      } catch(e) { 
-          alert("Error importing users. Please check CSV format."); 
-          console.error(e);
-      } finally { 
-          setIsImporting(false); 
-          setImportFile(null); 
-      }
-  };
-  
   const handleSendNotification = async () => {
       if (!notifTitle || !notifMessage) return alert("Enter title and message");
       setSendingNotif(true);
@@ -482,7 +341,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setSendingNotif(false); 
       }
   };
-  
+
   const handleAssignAdmin = async (user: User, role: Role) => {
       if (role === Role.MANDALAM_ADMIN) { 
           setSelectedUserForAdmin(user); 
@@ -531,7 +390,116 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setShowCustomModal(false); 
       setSelectedUserForAdmin(null);
   };
+
+  const handleImportUsers = async () => {
+      if (!importFile) return;
+      setIsImporting(true); setImportProgress(0);
+      try {
+          const text = await importFile.text();
+          const lines = text.split('\n').filter(l => l.trim());
+          const newUsers: User[] = [];
+          
+          // Get starting sequence from DB
+          const currentYear = new Date().getFullYear();
+          let currentSeq = await StorageService.getNextSequence(currentYear);
+
+          // Assuming CSV headers: Name, EmiratesID, Mobile, Emirate, Mandalam, Date(optional)
+          // Skip header row if exists
+          const startIdx = lines[0].toLowerCase().includes('name') ? 1 : 0;
+
+          for (let i = startIdx; i < lines.length; i++) {
+               const cols = lines[i].split(',');
+               if (cols.length >= 2) {
+                   const generatedRegNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
+                   
+                   newUsers.push({
+                       id: `user-${Date.now()}-${i}`,
+                       fullName: cols[0]?.trim() || 'Unknown',
+                       emiratesId: cols[1]?.trim() || `784${Date.now()}${i}`,
+                       mobile: cols[2]?.trim() || '',
+                       whatsapp: cols[2]?.trim() || '',
+                       emirate: (cols[3]?.trim() as Emirate) || Emirate.DUBAI,
+                       mandalam: (cols[4]?.trim() as Mandalam) || Mandalam.VATAKARA,
+                       registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), 
+                       
+                       // Defaults
+                       status: UserStatus.APPROVED,
+                       paymentStatus: PaymentStatus.UNPAID,
+                       role: Role.USER,
+                       registrationYear: currentYear,
+                       membershipNo: generatedRegNo,
+                       password: cols[1]?.trim() || 'password', 
+                       photoUrl: '',
+                       isImported: true,
+                       approvedBy: currentUser.fullName,
+                       approvedAt: new Date().toLocaleDateString()
+                   });
+                   currentSeq++; // Increment seq for next user
+               }
+          }
+          await StorageService.addUsers(newUsers, setImportProgress);
+          alert(`Successfully imported ${newUsers.length} users.`);
+      } catch(e) { 
+          alert("Error importing users. Please check CSV format."); 
+          console.error(e);
+      } finally { 
+          setIsImporting(false); 
+          setImportFile(null); 
+      }
+  };
   
+  const handleAddNewUser = async () => {
+      if(!newUserForm.fullName || !newUserForm.mobile) return alert("Name and Mobile are required");
+      try {
+          const currentYear = new Date().getFullYear();
+          const nextSeq = await StorageService.getNextSequence(currentYear);
+          const membershipNo = `${currentYear}${nextSeq.toString().padStart(4, '0')}`;
+          
+          const newUser: User = {
+              ...newUserForm as User,
+              id: `user-${Date.now()}`,
+              membershipNo,
+              registrationYear: currentYear,
+              registrationDate: new Date().toLocaleDateString(),
+              password: newUserForm.emiratesId || 'password',
+              photoUrl: '',
+              isImported: true,
+              approvedBy: currentUser.fullName,
+              approvedAt: new Date().toLocaleDateString(),
+              whatsapp: newUserForm.mobile || '',
+              emiratesId: newUserForm.emiratesId || `784${Date.now()}`
+          };
+          
+          await StorageService.addUser(newUser);
+          setShowAddUserModal(false);
+          setNewUserForm({ role: Role.USER, status: UserStatus.APPROVED, paymentStatus: PaymentStatus.UNPAID, mandalam: Mandalam.VATAKARA, emirate: Emirate.DUBAI });
+          alert("User added successfully.");
+      } catch(e: any) {
+          alert(e.message);
+      }
+  };
+
+  const handleStartNewYear = async () => {
+      const year = new Date().getFullYear() + 1;
+      if(!confirm(`Are you sure you want to start the fiscal year ${year}? This will reset payment status for all users.`)) return;
+      
+      setIsProcessingYear(true);
+      try {
+          await StorageService.createNewYear(year);
+          // Use safer, batched reset function instead of client-side loop
+          await StorageService.resetAllUserPayments();
+          alert("New Year initialized successfully. All users reset to UNPAID.");
+          
+          // Refresh years list
+          setYears(await StorageService.getYears());
+      } catch (e: any) {
+          console.error("New Year Error:", e);
+          alert("Operation Failed: " + e.message + ". Check console for details.");
+      } finally {
+          setIsProcessingYear(false);
+      }
+  };
+
   const saveEditUser = async () => {
       if (!editUserForm.id) return;
       await onUpdateUser(editUserForm.id, editUserForm);
@@ -550,19 +518,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               const img = new Image();
               img.onload = async () => {
                   let updatedConfig = cardConfig;
+                  
+                  // Initialize if null
                   if (!updatedConfig) {
                       updatedConfig = {
                           front: { templateImage: '', fields: [], width: 800, height: 500 },
                           back: { templateImage: '', fields: [], width: 800, height: 500 }
                       };
                   }
+
                   const newSideConfig = {
                       templateImage: base64,
                       fields: updatedConfig[activeCardSide].fields || [],
                       width: img.width,
                       height: img.height
                   };
-                  updatedConfig = { ...updatedConfig, [activeCardSide]: newSideConfig };
+
+                  updatedConfig = {
+                      ...updatedConfig,
+                      [activeCardSide]: newSideConfig
+                  };
+
                   await StorageService.saveCardConfig(updatedConfig);
                   setCardConfig(updatedConfig);
                   setIsUploadingTemplate(false);
@@ -617,6 +593,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           ...cardConfig[activeCardSide],
           fields: [...cardConfig[activeCardSide].fields, newField]
       };
+
       const updatedConfig = { ...cardConfig, [activeCardSide]: updatedSide };
       setCardConfig(updatedConfig);
       await StorageService.saveCardConfig(updatedConfig);
@@ -655,7 +632,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       </div>
   );
 
+  // --- Payment Submission Lists ---
   const pendingPayments = filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING);
+  // History includes Paid users OR Unpaid users who have attempted a payment (have remarks)
   const paymentHistory = filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID || (u.paymentStatus === PaymentStatus.UNPAID && u.paymentRemarks));
 
   return (
@@ -670,13 +649,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       </div>
 
+      {/* --- STATS GRID --- */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+           {/* Row 1 */}
            <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
            <StatCard label="New" value={stats.new} colorClass="text-green-600" />
            <StatCard label="Re-reg" value={stats.reReg} colorClass="text-orange-600" />
            <StatCard label="Pending" value={stats.pending} colorClass="text-orange-500" />
            <StatCard label="Approved" value={stats.approved} colorClass="text-emerald-600" />
            
+           {/* Row 2 (Wrapping) */}
            <StatCard label="Rejected" value={stats.rejected} colorClass="text-red-600" />
            <StatCard label="Paid" value={stats.paid} colorClass="text-purple-600" />
            <StatCard label="Admins" value={stats.admins} colorClass="text-indigo-600" />
@@ -686,6 +668,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
            </div>
       </div>
 
+      {/* --- TABS --- */}
       <div className="flex overflow-x-auto pb-2 gap-2 mt-2 no-scrollbar">
         {visibleTabs.map(tab => (
           <button 
@@ -698,6 +681,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         ))}
       </div>
 
+      {/* ... (Previous Tab Contents Omitted for Brevity - Keeping everything same until Card Mgmt) ... */}
+
+      {/* 1. USER APPROVALS */}
       {activeTab === 'User Approvals' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
              <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -730,6 +716,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
+      {/* 2. USERS OVERVIEW (MAIN LIST) */}
       {activeTab === 'Users Overview' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
              <div className="bg-slate-800 p-4 flex items-center justify-between">
@@ -776,48 +763,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                  </td>
                              </tr>
                          ))}
+                         {filteredList.length === 0 && (
+                             <tr>
+                                 <td colSpan={6} className="px-6 py-8 text-center text-slate-400 italic">No users found.</td>
+                             </tr>
+                         )}
                      </tbody>
                  </table>
              </div>
         </div>
       )}
 
-      {/* HOSPITAL MANAGEMENT TAB */}
-      {activeTab === 'Hospital Mgmt' && currentUser.role === Role.MASTER_ADMIN && (
-          <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-slate-900">Hospital Accounts</h3>
-                  <button onClick={() => setShowAddHospitalModal(true)} className="bg-primary text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2">
-                      <Plus className="w-4 h-4" /> Add Hospital
-                  </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {hospitalAccounts.map(h => (
-                      <div key={h.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                          <div className="flex items-center gap-4 mb-4">
-                              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
-                                  <Building2 className="w-6 h-6" />
-                              </div>
-                              <div>
-                                  <h4 className="font-bold text-slate-900">{h.fullName}</h4>
-                                  <p className="text-xs text-slate-500">{h.email}</p>
-                              </div>
-                          </div>
-                          <div className="flex justify-between text-sm mt-4 pt-4 border-t border-slate-100">
-                               <span className="text-slate-500">Password: <span className="font-mono text-slate-700">{h.password}</span></span>
-                               <button onClick={async () => { if(confirm("Delete Hospital Account?")) { await StorageService.updateUser(h.id, { status: UserStatus.REJECTED }); alert("Deleted"); }}} className="text-red-500 font-bold hover:underline">Remove</button>
-                          </div>
-                      </div>
-                  ))}
-                  {hospitalAccounts.length === 0 && (
-                      <div className="col-span-full text-center py-10 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">
-                          No hospital accounts created yet.
-                      </div>
-                  )}
-              </div>
-          </div>
-      )}
-
+      {/* 4. PAYMENT MGMT */}
       {activeTab === 'Payment Mgmt' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                <div className="p-4 bg-slate-50 border-b flex justify-between">
@@ -849,8 +806,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
+      {/* 5. PAYMENT SUBS (SUBMISSIONS) */}
       {activeTab === 'Payment Subs' && (
           <div className="space-y-6">
+               {/* PENDING APPROVALS */}
                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                    <div className="p-4 bg-orange-50 border-b border-orange-100 flex justify-between items-center">
                        <h3 className="font-bold text-orange-800 flex items-center gap-2">
@@ -887,6 +846,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                    </div>
                </div>
 
+               {/* SUBMISSION HISTORY */}
                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                    <div className="p-4 bg-slate-50 border-b border-slate-100">
                        <h3 className="font-bold text-slate-700">Submission History</h3>
@@ -914,45 +874,176 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* ... (Benefits, Notifications, Import Users, Admin Assign, Reg Questions, New Year tabs same as before) */}
-      
-      {/* NEW YEAR MGMT */}
-      {activeTab === 'New Year' && currentUser.role === Role.MASTER_ADMIN && (
-          <div className="space-y-6">
-              <div className="bg-white p-8 rounded-xl border border-slate-200 text-center">
-                   <Calendar className="w-16 h-16 mx-auto text-primary mb-4" />
-                   <h3 className="text-2xl font-bold text-slate-900">Fiscal Year Management</h3>
-                   <p className="text-slate-500 mb-6 max-w-md mx-auto">Start a new year to archive current records and reset payment status for all members.</p>
-                   
-                   <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-8 text-left max-w-lg mx-auto">
-                       <p className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
-                           <ShieldAlert className="w-4 h-4"/> Warning
-                       </p>
-                       <ul className="list-disc pl-5 text-xs text-amber-700 space-y-1">
-                           <li>Current active year ({years[0]?.year || 2025}) will be archived.</li>
-                           <li>All members' payment status will be reset to <strong>UNPAID</strong>.</li>
-                           <li>This action cannot be undone.</li>
-                       </ul>
+      {/* 6. BENEFITS */}
+      {activeTab === 'Benefits' && (
+          <div className="space-y-4">
+              <div className="flex justify-between">
+                   <div className="relative">
+                       <Search className="w-4 h-4 absolute left-3 top-2 text-slate-400"/>
+                       <input className="pl-9 pr-4 py-2 border rounded-lg text-sm" placeholder="Search Benefit..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
                    </div>
-
-                   <button 
-                      onClick={handleStartNewYear}
-                      className="px-8 py-3 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-lg"
-                   >
-                       Start Fiscal Year {new Date().getFullYear() + 1}
+                   <button onClick={() => setIsBenefitModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-bold text-sm">
+                       <Plus className="w-4 h-4"/> Add Benefit
                    </button>
               </div>
-
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="p-4 bg-slate-50 border-b font-bold text-slate-700">Year History</div>
-                  {years.map(y => (
-                      <div key={y.year} className="p-4 border-b last:border-0 flex justify-between items-center">
-                          <span className="font-bold text-lg text-slate-800">{y.year}</span>
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${y.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                              {y.status}
+                  <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-6 py-3">User</th><th className="px-6 py-3">Type</th><th className="px-6 py-3">Amount</th><th className="px-6 py-3">Date</th><th className="px-6 py-3 text-right">Action</th></tr></thead>
+                      <tbody>
+                          {filteredBenefits.map(b => (
+                              <tr key={b.id} className="border-b hover:bg-slate-50">
+                                  <td className="px-6 py-4"><div><p className="font-bold">{b.userName}</p><p className="text-xs text-slate-500">{b.regNo}</p></div></td>
+                                  <td className="px-6 py-4">{b.type}</td>
+                                  <td className="px-6 py-4 font-mono font-bold">AED {b.amount}</td>
+                                  <td className="px-6 py-4 text-xs">{b.date}</td>
+                                  <td className="px-6 py-4 text-right"><button onClick={()=>onDeleteBenefit(b.id)} className="text-red-500"><Trash2 className="w-4 h-4"/></button></td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      )}
+
+      {/* 7. NOTIFICATIONS */}
+      {activeTab === 'Notifications' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <h3 className="font-bold text-slate-800">Send Notification</h3>
+                  <input className="w-full p-2 border rounded" placeholder="Title" value={notifTitle} onChange={e=>setNotifTitle(e.target.value)} />
+                  <textarea className="w-full p-2 border rounded h-24" placeholder="Message..." value={notifMessage} onChange={e=>setNotifMessage(e.target.value)} />
+                  <select className="w-full p-2 border rounded" value={notifTarget} onChange={e=>setNotifTarget(e.target.value)}>
+                      <option value="ALL">All Members</option>
+                      {MANDALAMS.map(m => <option key={m} value={m}>{m} Members</option>)}
+                  </select>
+                  <button onClick={handleSendNotification} disabled={sendingNotif} className="w-full py-2 bg-primary text-white rounded font-bold hover:bg-primary-dark">{sendingNotif?'Sending...':'Send'}</button>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm overflow-y-auto max-h-[500px]">
+                   <h3 className="font-bold text-slate-800 mb-4">History</h3>
+                   <div className="space-y-4">
+                       {notifications.map(n => (
+                           <div key={n.id} className="p-3 border rounded hover:bg-slate-50 flex justify-between">
+                               <div><p className="font-bold text-sm">{n.title}</p><p className="text-xs text-slate-500">{n.date} • {n.targetAudience}</p></div>
+                               <button onClick={()=>onDeleteNotification(n.id)} className="text-red-400"><Trash2 className="w-4 h-4"/></button>
+                           </div>
+                       ))}
+                   </div>
+              </div>
+          </div>
+      )}
+
+      {/* 8. IMPORT USERS */}
+      {activeTab === 'Import Users' && (
+          <div className="bg-white p-8 rounded-xl border border-slate-200 text-center max-w-2xl mx-auto">
+              <div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FileUp className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">Bulk Import Users</h3>
+              <p className="text-slate-500 mb-6 text-sm">Upload a CSV file with columns: Name, EmiratesID, Mobile, Emirate, Mandalam, JoinDate(optional).</p>
+              
+              <div className="mb-6 flex justify-center">
+                  <input type="file" accept=".csv" onChange={e => setImportFile(e.target.files?.[0] || null)} />
+              </div>
+
+              <button 
+                onClick={handleImportUsers} 
+                disabled={!importFile || isImporting}
+                className="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark disabled:opacity-50"
+              >
+                  {isImporting ? `Importing... ${importProgress}` : 'Start Import'}
+              </button>
+          </div>
+      )}
+
+      {/* 9. ADMIN ASSIGN (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'Admin Assign' && currentUser.role === Role.MASTER_ADMIN && (
+          <div className="space-y-6">
+              <div className="bg-white p-4 rounded-xl border border-slate-200">
+                  <input className="w-full p-2 border rounded" placeholder="Search user to assign role..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+                  <div className="mt-4 max-h-[400px] overflow-y-auto space-y-2">
+                      {filteredList.slice(0, 50).map(u => (
+                          <div key={u.id} className="flex flex-col sm:flex-row justify-between items-center p-3 border rounded hover:bg-slate-50 gap-2">
+                              <div><p className="font-bold text-sm">{u.fullName}</p><p className="text-xs text-slate-500">{u.role} • {u.membershipNo}</p></div>
+                              <div className="flex gap-2 flex-wrap justify-end">
+                                  {u.role === Role.USER && (
+                                      <>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.MASTER_ADMIN)} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded font-bold shadow-sm hover:bg-purple-700">Make All Access Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.MANDALAM_ADMIN)} className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded font-bold border border-blue-100 hover:bg-blue-100">Mandalam Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.CUSTOM_ADMIN)} className="text-xs bg-slate-50 text-slate-700 px-3 py-1.5 rounded font-bold border border-slate-200 hover:bg-slate-100">Custom Admin</button>
+                                      </>
+                                  )}
+                                  {u.role !== Role.USER && (
+                                      <button onClick={()=>handleAssignAdmin(u, Role.USER)} className="text-xs bg-red-50 text-red-700 px-3 py-1.5 rounded font-bold border border-red-100 hover:bg-red-100">Revoke Admin</button>
+                                  )}
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* 10. REG QUESTIONS (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'Reg Questions' && currentUser.role === Role.MASTER_ADMIN && (
+          <div className="bg-white p-6 rounded-xl border border-slate-200">
+               <div className="flex justify-between items-center mb-6">
+                   <div>
+                       <h3 className="font-bold text-lg text-slate-900">Registration Questions</h3>
+                       <p className="text-slate-500 text-sm">Manage the questions shown during member sign-up.</p>
+                   </div>
+                   <div className="flex gap-3">
+                       <button onClick={async () => { if(confirm("Reset to default recommended questions? This will erase custom questions.")) { await StorageService.seedDefaultQuestions(); setQuestions(await StorageService.getQuestions()); } }} className="flex items-center gap-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg font-bold transition-colors">
+                           <RefreshCw className="w-3 h-3"/> Reset Defaults
+                       </button>
+                       <button onClick={() => { setQuestionForm({ type: FieldType.TEXT, required: true, order: questions.length + 1, options: [], systemMapping: 'NONE' }); setIsQuestionModalOpen(true); }} className="flex items-center gap-2 text-xs bg-primary text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-primary-dark transition-colors">
+                           <Plus className="w-3 h-3"/> Add Question
+                       </button>
+                   </div>
+               </div>
+               
+               <div className="space-y-3">
+                   {questions.map((q, idx) => (
+                       <div key={q.id} className="p-4 border border-slate-200 rounded-xl flex justify-between items-center hover:bg-slate-50 transition-colors bg-white shadow-sm">
+                           <div className="flex items-center gap-4">
+                               <span className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-500 rounded-full text-xs font-bold">{idx + 1}</span>
+                               <div>
+                                   <p className="font-bold text-slate-800 text-sm">{q.label} {q.required && <span className="text-red-500">*</span>}</p>
+                                   <div className="flex gap-2 mt-1">
+                                       <span className="text-[10px] uppercase font-bold tracking-wider bg-blue-50 text-blue-600 px-2 py-0.5 rounded">{q.type}</span>
+                                       {q.systemMapping !== 'NONE' && <span className="text-[10px] uppercase font-bold tracking-wider bg-purple-50 text-purple-600 px-2 py-0.5 rounded">Mapped: {q.systemMapping}</span>}
+                                   </div>
+                               </div>
+                           </div>
+                           <div className="flex gap-2">
+                               <button onClick={() => { setQuestionForm(q); setIsQuestionModalOpen(true); }} className="p-2 text-slate-500 hover:text-primary hover:bg-blue-50 rounded-lg transition-colors"><Edit className="w-4 h-4"/></button>
+                               <button onClick={async () => { if(confirm("Delete this question permanently?")) { await StorageService.deleteQuestion(q.id); setQuestions(await StorageService.getQuestions()); } }} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4"/></button>
+                           </div>
+                       </div>
+                   ))}
+               </div>
+          </div>
+      )}
+
+      {/* 11. NEW YEAR (RESTRICTED TO MASTER ADMIN) */}
+      {activeTab === 'New Year' && currentUser.role === Role.MASTER_ADMIN && (
+          <div className="flex items-center justify-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-center max-w-md">
+                  <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                     <Calendar className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-900 mb-2">Fiscal Year Management</h3>
+                  <p className="text-slate-500 mb-8 leading-relaxed">Start a new financial year to archive current records and reset all member payment statuses to <span className="font-bold text-red-500">Unpaid</span>.</p>
+                  <button 
+                    onClick={handleStartNewYear} 
+                    disabled={isProcessingYear}
+                    className="w-full px-6 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                      {isProcessingYear ? (
+                          <span className="flex items-center justify-center gap-2">
+                              <RefreshCw className="w-5 h-5 animate-spin" /> Processing New Year...
                           </span>
-                      </div>
-                  ))}
+                      ) : 'Start New Fiscal Year'}
+                  </button>
               </div>
           </div>
       )}
@@ -967,7 +1058,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                               <LayoutTemplate className="w-5 h-5 text-primary" />
                               ID Card Designer
                           </h3>
-                          <p className="text-slate-500 text-sm mt-1">Configure designs for Ahalia Hospital and LLH Hospital Cards.</p>
+                          <p className="text-slate-500 text-sm mt-1">Upload distinct designs for Card 1 (Front/Main) and Card 2 (Back/Certificate).</p>
                       </div>
                       <div className="flex gap-4">
                           <div className="bg-slate-100 rounded-lg p-1 flex">
@@ -975,13 +1066,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                  onClick={() => setActiveCardSide('front')}
                                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'front' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}
                                >
-                                   Ahalia Card
+                                   Card Design 1
                                </button>
                                <button 
                                  onClick={() => setActiveCardSide('back')}
                                  className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'back' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}
                                >
-                                   LLH Card
+                                   Card Design 2
                                </button>
                           </div>
                           <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm">
@@ -995,7 +1086,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                       <div className="lg:col-span-2 bg-slate-100 rounded-xl p-4 border border-slate-200 flex items-center justify-center min-h-[400px] select-none relative overflow-hidden">
                           {cardConfig && cardConfig[activeCardSide].templateImage ? (
-                              <div className="relative shadow-2xl inline-block">
+                              <div 
+                                className="relative shadow-2xl inline-block"
+                                // onMouseMove removed - handled by window listener
+                              >
                                   <img 
                                       ref={cardImageRef}
                                       src={cardConfig[activeCardSide].templateImage} 
@@ -1034,14 +1128,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                           ) : (
                               <div className="text-center text-slate-400">
                                   <LayoutTemplate className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                                  <p>No template uploaded for {activeCardSide === 'front' ? 'Ahalia Card' : 'LLH Card'}.</p>
+                                  <p>No template uploaded for {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}.</p>
                               </div>
                           )}
                       </div>
 
                       <div className="space-y-6">
                           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                              <h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide === 'front' ? 'Ahalia' : 'LLH'}</h4>
+                              <h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}</h4>
                               <div className="flex gap-2">
                                   <select 
                                       className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none"
@@ -1093,22 +1187,202 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* --- MODALS --- */}
-      {/* Benefit Modal, Mandalam/Custom Admin Modal, Edit User Modal, Add User Modal same as before */}
-
-      {/* Add Hospital Modal */}
-      {showAddHospitalModal && (
+      {/* --- MODALS (Omitted as they are unchanged) --- */}
+      {/* Benefit Modal */}
+      {isBenefitModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white w-full max-w-md rounded-xl p-6">
-                  <h3 className="font-bold text-lg mb-4">Create Hospital Account</h3>
+                  <h3 className="font-bold text-lg mb-4">Add Benefit Record</h3>
                   <div className="space-y-3">
-                      <input className="w-full p-2 border rounded" placeholder="Hospital Name (e.g. Ahalia Hospital)" value={newHospitalForm.name} onChange={e=>setNewHospitalForm({...newHospitalForm, name: e.target.value})} />
-                      <input className="w-full p-2 border rounded" placeholder="Login Email" value={newHospitalForm.email} onChange={e=>setNewHospitalForm({...newHospitalForm, email: e.target.value})} />
-                      <input className="w-full p-2 border rounded" type="password" placeholder="Password" value={newHospitalForm.password} onChange={e=>setNewHospitalForm({...newHospitalForm, password: e.target.value})} />
+                      <select className="w-full p-2 border rounded" value={benefitForm.userId} onChange={e=>setBenefitForm({...benefitForm, userId: e.target.value})}>
+                          <option value="">Select User...</option>
+                          {authorizedUsers.map(u => <option key={u.id} value={u.id}>{u.fullName} ({u.membershipNo})</option>)}
+                      </select>
+                      <select className="w-full p-2 border rounded" value={benefitForm.type} onChange={e=>setBenefitForm({...benefitForm, type: e.target.value as BenefitType})}>
+                          {Object.values(BenefitType).map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <input className="w-full p-2 border rounded" type="number" placeholder="Amount (AED)" value={benefitForm.amount} onChange={e=>setBenefitForm({...benefitForm, amount: e.target.value})} />
+                      <input className="w-full p-2 border rounded" placeholder="Remarks" value={benefitForm.remarks} onChange={e=>setBenefitForm({...benefitForm, remarks: e.target.value})} />
                   </div>
                   <div className="flex justify-end gap-2 mt-6">
-                      <button onClick={()=>setShowAddHospitalModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
-                      <button onClick={handleAddHospital} className="px-4 py-2 bg-primary text-white rounded">Create Account</button>
+                      <button onClick={()=>setIsBenefitModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                      <button onClick={handleAddBenefitSubmit} className="px-4 py-2 bg-primary text-white rounded">Save</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Mandalam/Custom Admin Modal */}
+      {(showMandalamModal || showCustomModal) && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white w-full max-w-md rounded-xl p-6">
+                  <h3 className="font-bold text-lg mb-4">Assign Admin Permissions</h3>
+                  {showMandalamModal && (
+                      <div className="space-y-2">
+                          <p className="text-sm font-bold">Select Mandalams:</p>
+                          {MANDALAMS.map(m => (
+                              <label key={m} className="flex items-center gap-2 p-2 border rounded cursor-pointer">
+                                  <input type="checkbox" checked={assignMandalamSel.includes(m as Mandalam)} onChange={e => {
+                                      if (e.target.checked) setAssignMandalamSel([...assignMandalamSel, m as Mandalam]);
+                                      else setAssignMandalamSel(assignMandalamSel.filter(x => x !== m));
+                                  }} />
+                                  <span className="text-sm">{m}</span>
+                              </label>
+                          ))}
+                      </div>
+                  )}
+                  {showCustomModal && (
+                      <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                          <div>
+                              <p className="text-sm font-bold mb-2">Permissions:</p>
+                              {ADMIN_PERMISSIONS.map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 p-2 border rounded cursor-pointer mb-2">
+                                      <input type="checkbox" checked={customPerms.includes(p.id)} onChange={e => {
+                                          if (e.target.checked) setCustomPerms([...customPerms, p.id]);
+                                          else setCustomPerms(customPerms.filter(x => x !== p.id));
+                                      }} />
+                                      <span className="text-sm">{p.label}</span>
+                                  </label>
+                              ))}
+                          </div>
+                          <div>
+                              <p className="text-sm font-bold mb-2">Access Scope (Mandalams):</p>
+                              {MANDALAMS.map(m => (
+                                  <label key={m} className="flex items-center gap-2 p-2 border rounded cursor-pointer mb-1">
+                                      <input type="checkbox" checked={customMandalams.includes(m as Mandalam)} onChange={e => {
+                                          if (e.target.checked) setCustomMandalams([...customMandalams, m as Mandalam]);
+                                          else setCustomMandalams(customMandalams.filter(x => x !== m));
+                                      }} />
+                                      <span className="text-sm">{m}</span>
+                                  </label>
+                              ))}
+                          </div>
+                      </div>
+                  )}
+                  <div className="flex justify-end gap-2 mt-6">
+                      <button onClick={() => { setShowMandalamModal(false); setShowCustomModal(false); }} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                      <button onClick={saveAdminAssignment} className="px-4 py-2 bg-primary text-white rounded">Save</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditUserModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+               <div className="bg-white w-full max-w-2xl rounded-xl p-6 max-h-[90vh] overflow-y-auto">
+                   <div className="flex justify-between items-center mb-6 border-b pb-2">
+                       <h3 className="font-bold text-lg text-slate-900">Edit User Details</h3>
+                       <button onClick={() => setShowEditUserModal(false)}><X className="w-5 h-5 text-slate-400"/></button>
+                   </div>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       {/* Standard System Fields */}
+                       <div className="col-span-2">
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Full Name</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.fullName || ''} onChange={e => setEditUserForm({...editUserForm, fullName: e.target.value})} />
+                       </div>
+                       
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Mobile</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.mobile || ''} onChange={e => setEditUserForm({...editUserForm, mobile: e.target.value})} />
+                       </div>
+                       
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Email</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.email || ''} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Emirates ID</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.emiratesId || ''} onChange={e => setEditUserForm({...editUserForm, emiratesId: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Password</label>
+                           <input className="w-full border p-2 rounded text-sm" value={editUserForm.password || ''} onChange={e => setEditUserForm({...editUserForm, password: e.target.value})} />
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Mandalam</label>
+                           <select className="w-full border p-2 rounded text-sm bg-white" value={editUserForm.mandalam} onChange={e => setEditUserForm({...editUserForm, mandalam: e.target.value as Mandalam})}>
+                               {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                           </select>
+                       </div>
+
+                       <div>
+                           <label className="block text-xs font-bold text-slate-500 mb-1">Status</label>
+                           <select className="w-full border p-2 rounded text-sm bg-white" value={editUserForm.status} onChange={e => setEditUserForm({...editUserForm, status: e.target.value as UserStatus})}>
+                               {Object.values(UserStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                           </select>
+                       </div>
+
+                       {/* Dynamic Fields Loop */}
+                       {questions.map(q => {
+                           // Skip fields we already handled above manually if they are mapped
+                           if (['fullName','mobile','email','password','emiratesId','mandalam'].includes(q.systemMapping || '')) return null;
+
+                           let val = '';
+                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                               // It's a system field like addressUAE, addressIndia, etc.
+                               val = (editUserForm as any)[q.systemMapping] || '';
+                           } else {
+                               // It's custom data
+                               val = editUserForm.customData?.[q.id] || '';
+                           }
+
+                           return (
+                               <div key={q.id} className={q.type === FieldType.TEXTAREA ? "col-span-2" : ""}>
+                                   <label className="block text-xs font-bold text-slate-500 mb-1">{q.label}</label>
+                                   {q.type === FieldType.TEXTAREA ? (
+                                       <textarea className="w-full border p-2 rounded text-sm h-20 resize-none" value={val} onChange={e => {
+                                           const newVal = e.target.value;
+                                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                                               setEditUserForm({...editUserForm, [q.systemMapping]: newVal});
+                                           } else {
+                                               setEditUserForm({...editUserForm, customData: { ...editUserForm.customData, [q.id]: newVal }});
+                                           }
+                                       }} />
+                                   ) : (
+                                       <input className="w-full border p-2 rounded text-sm" value={val} onChange={e => {
+                                           const newVal = e.target.value;
+                                           if (q.systemMapping && q.systemMapping !== 'NONE') {
+                                               setEditUserForm({...editUserForm, [q.systemMapping]: newVal});
+                                           } else {
+                                               setEditUserForm({...editUserForm, customData: { ...editUserForm.customData, [q.id]: newVal }});
+                                           }
+                                       }} />
+                                   )}
+                               </div>
+                           );
+                       })}
+
+                   </div>
+                   <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+                       <button onClick={() => setShowEditUserModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                       <button onClick={saveEditUser} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary-dark">Save Changes</button>
+                   </div>
+               </div>
+          </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUserModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto">
+                  <h3 className="font-bold text-lg mb-4">Add New User</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                      <input className="border p-2 rounded" placeholder="Full Name *" value={newUserForm.fullName || ''} onChange={e => setNewUserForm({...newUserForm, fullName: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Mobile *" value={newUserForm.mobile || ''} onChange={e => setNewUserForm({...newUserForm, mobile: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Emirates ID" value={newUserForm.emiratesId || ''} onChange={e => setNewUserForm({...newUserForm, emiratesId: e.target.value})} />
+                      <input className="border p-2 rounded" placeholder="Email" value={newUserForm.email || ''} onChange={e => setNewUserForm({...newUserForm, email: e.target.value})} />
+                      <select className="border p-2 rounded" value={newUserForm.mandalam} onChange={e => setNewUserForm({...newUserForm, mandalam: e.target.value as Mandalam})}>
+                           {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-6">
+                      <button onClick={() => setShowAddUserModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
+                      <button onClick={handleAddNewUser} className="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700">Add User</button>
                   </div>
               </div>
           </div>
@@ -1118,8 +1392,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       {isQuestionModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto space-y-4">
-                   {/* ... (Existing Question Modal Content) ... */}
-                   <h3 className="font-bold text-lg text-slate-900 border-b pb-2">
+                  <h3 className="font-bold text-lg text-slate-900 border-b pb-2">
                       {questionForm.id ? 'Edit Question' : 'Add New Question'}
                   </h3>
                   
@@ -1134,6 +1407,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                           <select className="w-full border p-2 rounded text-sm bg-slate-50" value={questionForm.systemMapping || 'NONE'} onChange={e => setQuestionForm({...questionForm, systemMapping: e.target.value as any})}>
                               {SYSTEM_FIELD_MAPPING.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                           </select>
+                          <p className="text-[10px] text-slate-400 mt-1">Link to core user profile data</p>
                       </div>
                       <div>
                           <label className="block text-xs font-bold text-slate-500 mb-1">Input Type</label>
@@ -1167,6 +1441,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                        {o} <button onClick={() => setQuestionForm({...questionForm, options: questionForm.options?.filter(x => x !== o)})}><X className="w-3 h-3 text-red-500 hover:text-red-700"/></button>
                                    </span>
                                ))}
+                               {(!questionForm.options || questionForm.options.length === 0) && <p className="text-xs text-slate-400 italic">No options added yet.</p>}
                            </div>
                        </div>
                   )}
@@ -1191,7 +1466,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       {viewingUser && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white w-full max-w-lg rounded-xl p-6 shadow-2xl">
-                 <div className="flex justify-between items-start mb-6 border-b pb-4">
+                <div className="flex justify-between items-start mb-6 border-b pb-4">
                     <div>
                         <h3 className="font-bold text-xl text-slate-900">{viewingUser.fullName}</h3>
                         <p className="text-slate-500 text-sm">{viewingUser.membershipNo}</p>
