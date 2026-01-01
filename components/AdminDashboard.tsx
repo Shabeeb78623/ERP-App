@@ -22,6 +22,7 @@ interface AdminDashboardProps {
   users: User[];
   benefits: BenefitRecord[];
   notifications: Notification[];
+  years: YearConfig[]; // Added prop
   stats: DashboardStats;
   onUpdateUser: (userId: string, updates: Partial<User>) => void;
   onAddBenefit: (benefit: BenefitRecord) => void;
@@ -60,7 +61,7 @@ const SYSTEM_FIELD_MAPPING = [
     { value: 'recommendedBy', label: 'Recommended By' },
 ];
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, years, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
   const [activeTab, setActiveTab] = useState('User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -78,10 +79,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
-  const [years, setYears] = useState<YearConfig[]>([]);
   
   // New Year processing state
   const [isProcessingYear, setIsProcessingYear] = useState(false);
+  const [newYearInput, setNewYearInput] = useState<string>(String(new Date().getFullYear() + 1));
 
   // Forms
   const [notifTitle, setNotifTitle] = useState('');
@@ -152,7 +153,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   useEffect(() => {
       const loadData = async () => {
-          setYears(await StorageService.getYears());
           setQuestions(await StorageService.getQuestions());
           setCardConfig(await StorageService.getCardConfig());
       }
@@ -272,7 +272,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       if(confirm("Confirm payment received and approve user?")) {
           await StorageService.updateUser(id, { 
               paymentStatus: PaymentStatus.PAID, 
-              status: UserStatus.APPROVED, 
+              status: UserStatus.APPROVED, // Explicitly set back to APPROVED incase they were RENEWAL_PENDING
               approvedBy: currentUser.fullName, 
               approvedAt: new Date().toLocaleDateString() 
           });
@@ -480,23 +480,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   };
 
   const handleStartNewYear = async () => {
-      const year = new Date().getFullYear() + 1;
-      if(!confirm(`Are you sure you want to start the fiscal year ${year}? This will reset payment status for all users.`)) return;
+      const year = parseInt(newYearInput, 10);
+      if(isNaN(year) || year < 2024 || year > 2050) {
+          alert("Please enter a valid year (2024-2050)");
+          return;
+      }
+
+      if(!confirm(`ACTION: START FISCAL YEAR ${year}\n\n1. Current active year will be archived.\n2. ALL members will be reset to 'UNPAID'.\n3. Renewal fees will apply for existing members.\n\nAre you sure you want to proceed?`)) return;
       
       setIsProcessingYear(true);
       try {
           await StorageService.createNewYear(year);
-          // Use safer, batched reset function instead of client-side loop
-          await StorageService.resetAllUserPayments();
-          alert("New Year initialized successfully. All users reset to UNPAID.");
-          
-          // Refresh years list
-          setYears(await StorageService.getYears());
+          // Pass the new year so the logic can distinguish old vs new users
+          await StorageService.resetAllUserPayments(year);
+          alert(`Success! Fiscal Year ${year} started. Payment status for all members has been reset to UNPAID.`);
+          setNewYearInput(String(year + 1)); // Prepare next year
       } catch (e: any) {
           console.error("New Year Error:", e);
-          alert("Operation Failed: " + e.message + ". Check console for details.");
+          alert("Operation Failed: " + e.message);
       } finally {
           setIsProcessingYear(false);
+      }
+  };
+
+  const handleDeleteYear = async (year: number) => {
+      if (!confirm(`Are you sure you want to delete the fiscal year ${year}? This will remove it from the history.`)) return;
+      
+      try {
+          await StorageService.deleteYear(year);
+          // UI updates automatically via subscription
+      } catch (e) {
+          console.error(e);
+          alert("Failed to delete year.");
       }
   };
 
@@ -644,7 +659,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           <div className="flex items-center gap-2">
                <span className="text-sm font-medium text-slate-500">Year:</span>
                <select className="bg-white border border-slate-200 text-sm font-bold rounded px-2 py-1 outline-none">
-                   <option>2025</option>
+                   {years.length > 0 ? (
+                       years.map(y => <option key={y.year} value={y.year}>{y.year}</option>)
+                   ) : (
+                       <option>{new Date().getFullYear()}</option>
+                   )}
                </select>
           </div>
       </div>
@@ -1026,24 +1045,62 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
       {/* 11. NEW YEAR (RESTRICTED TO MASTER ADMIN) */}
       {activeTab === 'New Year' && currentUser.role === Role.MASTER_ADMIN && (
-          <div className="flex items-center justify-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-center max-w-md">
-                  <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                     <Calendar className="w-10 h-10" />
+          <div className="space-y-6">
+              <div className="flex items-center justify-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <div className="text-center max-w-md w-full">
+                      <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                         <Calendar className="w-10 h-10" />
+                      </div>
+                      <h3 className="text-2xl font-bold text-slate-900 mb-2">Fiscal Year Management</h3>
+                      <p className="text-slate-500 mb-8 leading-relaxed">Start a new financial year to archive current records and reset all member payment statuses to <span className="font-bold text-red-500">Unpaid</span>.</p>
+                      
+                      <div className="flex flex-col gap-4">
+                          <div className="flex gap-2 justify-center items-center">
+                              <label className="text-sm font-bold text-slate-600">New Fiscal Year:</label>
+                              <input 
+                                  type="number" 
+                                  className="border p-2 rounded-lg w-32 text-center font-bold text-lg"
+                                  value={newYearInput}
+                                  onChange={(e) => setNewYearInput(e.target.value)}
+                              />
+                          </div>
+                          
+                          <button 
+                            onClick={handleStartNewYear} 
+                            disabled={isProcessingYear}
+                            className="w-full px-6 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 disabled:opacity-70 disabled:cursor-not-allowed"
+                          >
+                              {isProcessingYear ? (
+                                  <span className="flex items-center justify-center gap-2">
+                                      <RefreshCw className="w-5 h-5 animate-spin" /> Processing...
+                                  </span>
+                              ) : 'Start New Fiscal Year'}
+                          </button>
+                      </div>
                   </div>
-                  <h3 className="text-2xl font-bold text-slate-900 mb-2">Fiscal Year Management</h3>
-                  <p className="text-slate-500 mb-8 leading-relaxed">Start a new financial year to archive current records and reset all member payment statuses to <span className="font-bold text-red-500">Unpaid</span>.</p>
-                  <button 
-                    onClick={handleStartNewYear} 
-                    disabled={isProcessingYear}
-                    className="w-full px-6 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                      {isProcessingYear ? (
-                          <span className="flex items-center justify-center gap-2">
-                              <RefreshCw className="w-5 h-5 animate-spin" /> Processing New Year...
-                          </span>
-                      ) : 'Start New Fiscal Year'}
-                  </button>
+              </div>
+
+              {/* Year History List */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="p-4 bg-slate-50 border-b font-bold text-slate-700">Year History</div>
+                  {years.map(y => (
+                      <div key={y.year} className="p-4 border-b last:border-0 flex justify-between items-center hover:bg-slate-50">
+                          <div className="flex items-center gap-3">
+                              <span className="font-bold text-lg text-slate-800">{y.year}</span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${y.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                  {y.status}
+                              </span>
+                          </div>
+                          <button 
+                              onClick={() => handleDeleteYear(y.year)}
+                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete Year"
+                          >
+                              <Trash2 className="w-4 h-4" />
+                          </button>
+                      </div>
+                  ))}
+                  {years.length === 0 && <div className="p-6 text-center text-slate-400">No year history found.</div>}
               </div>
           </div>
       )}

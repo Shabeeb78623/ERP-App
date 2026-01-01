@@ -111,6 +111,19 @@ export const StorageService = {
       });
   },
 
+  subscribeToYears: (callback: (years: YearConfig[]) => void) => {
+      const q = query(collection(db, YEARS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const years = snapshot.docs.map(doc => doc.data() as YearConfig);
+          // Sort descending (newest year first)
+          years.sort((a, b) => b.year - a.year);
+          callback(years);
+      }, (error) => {
+          console.error("Firestore subscription error (Years):", error);
+          callback([]);
+      });
+  },
+
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
     try {
@@ -205,35 +218,51 @@ export const StorageService = {
     await setDoc(userRef, updates, { merge: true });
   },
 
-  resetAllUserPayments: async (): Promise<void> => {
+  resetAllUserPayments: async (newYear: number): Promise<void> => {
     console.log("Starting bulk payment reset...");
-    const users = await StorageService.getUsers();
-    // Filter out Master Admin and Hospital Staff, reset everyone else (Users, Custom Admins, Mandalam Admins)
-    // Only process users that have a valid ID
+    
+    // Explicitly fetch latest snapshot to be sure
+    const snapshot = await getDocs(collection(db, USERS_COLLECTION));
+    const users = snapshot.docs.map(doc => doc.data() as User);
+    
+    // Filter out Master Admin, reset everyone else
     const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.id);
     
     console.log(`Found ${eligibleUsers.length} users to reset.`);
     if (eligibleUsers.length === 0) return;
 
-    const batchSize = 400;
+    const batchSize = 300; 
+    const resetDate = new Date().toISOString();
+
     for (let i = 0; i < eligibleUsers.length; i += batchSize) {
         const batch = writeBatch(db);
         const chunk = eligibleUsers.slice(i, i + batchSize);
-        
+        let operationsInBatch = 0;
+
         chunk.forEach(user => {
             if (user.id) {
                 const ref = doc(db, USERS_COLLECTION, user.id);
-                // Use set with merge: true which is safer than update if a doc is missing fields
+                
+                // Determine new status
+                // If they registered before this new year, they are now Pending Renewal
+                const isRenewal = user.registrationYear < newYear;
+                const newStatus = isRenewal ? UserStatus.RENEWAL_PENDING : user.status;
+
                 batch.set(ref, { 
                     paymentStatus: PaymentStatus.UNPAID,
-                    paymentRemarks: '' 
+                    paymentRemarks: '',
+                    status: newStatus,
+                    lastPaymentReset: resetDate 
                 }, { merge: true });
+                operationsInBatch++;
             }
         });
         
-        console.log(`Committing batch ${i / batchSize + 1}...`);
-        await batch.commit();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        if (operationsInBatch > 0) {
+            console.log(`Committing batch ${i / batchSize + 1}...`);
+            await batch.commit();
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
     }
     console.log("Bulk payment reset complete.");
   },
@@ -438,24 +467,50 @@ export const StorageService = {
   },
 
   createNewYear: async (year: number): Promise<void> => {
-      const years = await StorageService.getYears();
-      if (years.find(y => y.year === year)) {
-          throw new Error("Year already exists");
+      // Direct fetch to check real DB state, ignoring mock fallback of getYears
+      const snapshot = await getDocs(collection(db, YEARS_COLLECTION));
+      const existingYears = snapshot.docs.map(doc => doc.data() as YearConfig);
+
+      if (existingYears.find(y => y.year === year)) {
+          throw new Error(`Year ${year} already exists in records.`);
       }
       
       console.log(`Archiving old years and creating new year: ${year}`);
       
-      // Archive existing years safely
-      const archivePromises = years.map(y => {
-          const archivedYear: YearConfig = { ...y, status: 'ARCHIVED' };
-          return setDoc(doc(db, YEARS_COLLECTION, y.year.toString()), archivedYear);
+      const batch = writeBatch(db);
+      
+      // Archive existing years only if they exist in DB
+      existingYears.forEach(y => {
+          const ref = doc(db, YEARS_COLLECTION, y.year.toString());
+          batch.update(ref, { status: 'ARCHIVED' });
       });
-      await Promise.all(archivePromises);
       
       // Create new year
-      const newYear: YearConfig = { year, status: 'ACTIVE', count: 0 };
-      await setDoc(doc(db, YEARS_COLLECTION, year.toString()), newYear);
+      const newYearRef = doc(db, YEARS_COLLECTION, year.toString());
+      const newYearData: YearConfig = { year, status: 'ACTIVE', count: 0 };
+      batch.set(newYearRef, newYearData);
+
+      await batch.commit();
       console.log(`Year ${year} created.`);
+  },
+
+  deleteYear: async (year: number): Promise<void> => {
+      const yearStr = year.toString();
+      const snapshot = await getDocs(collection(db, YEARS_COLLECTION));
+      const allYears = snapshot.docs.map(doc => doc.data() as YearConfig).sort((a, b) => b.year - a.year);
+      
+      const targetYear = allYears.find(y => y.year === year);
+      
+      // Delete the target year
+      await deleteDoc(doc(db, YEARS_COLLECTION, yearStr));
+      
+      // If the deleted year was ACTIVE, we must promote the next newest year to ACTIVE
+      if (targetYear?.status === 'ACTIVE' && allYears.length > 1) {
+          const nextActive = allYears.find(y => y.year !== year); // Because list is sorted desc, this gets the next newest
+          if (nextActive) {
+              await updateDoc(doc(db, YEARS_COLLECTION, nextActive.year.toString()), { status: 'ACTIVE' });
+          }
+      }
   },
   
   // --- CARD CONFIG ---

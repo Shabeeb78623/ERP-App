@@ -9,14 +9,19 @@ interface UserDashboardProps {
   benefits: BenefitRecord[];
   onUpdateUser: (userId: string, updates: Partial<User>) => void;
   isLoading?: boolean;
+  activeYear: number;
 }
 
-const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading }) => {
+const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading, activeYear }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
 
   useEffect(() => {
-      StorageService.getQuestions().then(qs => setQuestions(qs));
+      const loadData = async () => {
+          const qs = await StorageService.getQuestions();
+          setQuestions(qs);
+      };
+      loadData();
   }, []);
 
   const handlePaymentSubmit = () => {
@@ -38,6 +43,10 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
       const q = questions.find(quest => quest.id === id);
       return q ? q.label : id;
   }
+
+  // Determine if it's a renewal (Registered year is less than current active year)
+  // If user is currently unpaid, and their registration was in the past, it's a renewal.
+  const isRenewal = user.registrationYear < activeYear;
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -75,14 +84,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                     <div className="p-2 bg-blue-50 text-primary rounded-lg">
                         <Wallet className="w-6 h-6" />
                     </div>
-                    <h2 className="text-xl font-bold text-slate-900">Membership Fees</h2>
+                    <h2 className="text-xl font-bold text-slate-900">
+                        {isRenewal ? 'Membership Renewal' : 'Membership Fees'}
+                    </h2>
                 </div>
 
                 {user.paymentStatus === PaymentStatus.UNPAID ? (
                     <div className="space-y-6">
                          <div className="p-5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
                              <div>
-                                 <p className="text-sm text-slate-500">Annual Fee ({user.registrationYear})</p>
+                                 <p className="text-sm text-slate-500">
+                                     {isRenewal ? `Renewal Fee (${activeYear})` : `Annual Fee (${user.registrationYear})`}
+                                 </p>
                                  <p className="text-2xl font-bold text-slate-900">AED 25.00</p>
                              </div>
                              <span className="px-3 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-full">DUE</span>
@@ -103,7 +116,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                             disabled={isLoading}
                             className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all disabled:opacity-70"
                          >
-                             {isLoading ? 'Processing...' : 'Submit Payment Proof'}
+                             {isLoading ? 'Processing...' : (isRenewal ? 'Submit Renewal' : 'Submit Payment Proof')}
                          </button>
                     </div>
                 ) : (

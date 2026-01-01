@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import UserDashboard from './components/UserDashboard';
@@ -9,7 +10,7 @@ import VerificationView from './components/VerificationView'; // Import Verifica
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
 import { initializeAuth } from './services/firebase';
-import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification } from './types';
+import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification, YearConfig } from './types';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -18,6 +19,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [benefits, setBenefits] = useState<BenefitRecord[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [years, setYears] = useState<YearConfig[]>([]);
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'USER'>('USER');
 
@@ -48,6 +50,7 @@ const App: React.FC = () => {
     let unsubscribeUsers: () => void;
     let unsubscribeBenefits: () => void;
     let unsubscribeNotifs: () => void;
+    let unsubscribeYears: () => void;
 
     const init = async () => {
         // 1. Ensure Auth (fixes permission errors)
@@ -64,6 +67,10 @@ const App: React.FC = () => {
 
         unsubscribeNotifs = StorageService.subscribeToNotifications((liveNotifs) => {
             setNotifications(liveNotifs);
+        });
+
+        unsubscribeYears = StorageService.subscribeToYears((liveYears) => {
+            setYears(liveYears);
         });
 
         // 3. Restore Session from LocalStorage
@@ -95,6 +102,7 @@ const App: React.FC = () => {
         if (unsubscribeUsers) unsubscribeUsers();
         if (unsubscribeBenefits) unsubscribeBenefits();
         if (unsubscribeNotifs) unsubscribeNotifs();
+        if (unsubscribeYears) unsubscribeYears();
     };
   }, []);
 
@@ -108,10 +116,14 @@ const App: React.FC = () => {
       }
   }, [users]);
 
+  // Determine current active year
+  const activeYear = years.length > 0 ? years[0].year : new Date().getFullYear();
+
   const stats: DashboardStats = {
       total: users.length - 1, 
-      new: users.filter(u => u.registrationYear === 2025 && u.role !== Role.MASTER_ADMIN).length,
-      reReg: users.filter(u => u.registrationYear < 2025 && u.role !== Role.MASTER_ADMIN).length,
+      new: users.filter(u => u.registrationYear === activeYear && u.role !== Role.MASTER_ADMIN).length,
+      // Re-Reg count logic: Users from older years who have PAID for the current active year
+      reReg: users.filter(u => u.registrationYear < activeYear && u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length,
       pending: users.filter(u => u.status === UserStatus.PENDING && u.role !== Role.MASTER_ADMIN).length,
       approved: users.filter(u => u.status === UserStatus.APPROVED && u.role !== Role.MASTER_ADMIN).length,
       rejected: users.filter(u => u.status === UserStatus.REJECTED && u.role !== Role.MASTER_ADMIN).length,
@@ -301,12 +313,12 @@ const App: React.FC = () => {
 
     if (viewMode === 'USER') {
         switch (currentView) {
-            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
+            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
             case 'CARD': return <MembershipCard user={currentUser} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
             case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />;
-            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} />;
+            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
         }
     } else {
         // Admin View
@@ -317,6 +329,7 @@ const App: React.FC = () => {
                 users={users} 
                 benefits={benefits}
                 notifications={notifications}
+                years={years}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
@@ -332,6 +345,7 @@ const App: React.FC = () => {
                 users={users} 
                 benefits={benefits}
                 notifications={notifications}
+                years={years}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
