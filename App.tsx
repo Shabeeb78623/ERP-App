@@ -119,17 +119,21 @@ const App: React.FC = () => {
   // Determine current active year
   const activeYear = years.length > 0 ? years[0].year : new Date().getFullYear();
 
+  // Helper to check if a user is a regular member (excluding System/Hospital admins)
+  const isMember = (u: User) => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_ADMIN;
+
   const stats: DashboardStats = {
-      total: users.length - 1, 
-      new: users.filter(u => u.registrationYear === activeYear && u.role !== Role.MASTER_ADMIN).length,
-      // Re-Reg count logic: Users from older years who have PAID for the current active year
-      reReg: users.filter(u => u.registrationYear < activeYear && u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length,
-      pending: users.filter(u => u.status === UserStatus.PENDING && u.role !== Role.MASTER_ADMIN).length,
-      approved: users.filter(u => u.status === UserStatus.APPROVED && u.role !== Role.MASTER_ADMIN).length,
-      rejected: users.filter(u => u.status === UserStatus.REJECTED && u.role !== Role.MASTER_ADMIN).length,
-      paid: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length,
+      total: users.filter(isMember).length, 
+      new: users.filter(u => u.registrationYear === activeYear && isMember(u)).length,
+      // Re-Reg: Old members who Paid this year
+      reReg: users.filter(u => u.registrationYear < activeYear && u.paymentStatus === PaymentStatus.PAID && isMember(u)).length,
+      pending: users.filter(u => u.status === UserStatus.PENDING && isMember(u)).length,
+      approved: users.filter(u => u.status === UserStatus.APPROVED && isMember(u)).length,
+      rejected: users.filter(u => u.status === UserStatus.REJECTED && isMember(u)).length,
+      paid: users.filter(u => u.paymentStatus === PaymentStatus.PAID && isMember(u)).length,
+      // Admins count includes Hospital Admins
       admins: users.filter(u => u.role !== Role.USER && u.role !== Role.MASTER_ADMIN).length,
-      collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && u.role !== Role.MASTER_ADMIN).length * 25
+      collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && isMember(u)).length * 25
   };
 
   const handleLogin = async (identifier: string, passwordInput: string) => {

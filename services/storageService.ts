@@ -225,8 +225,8 @@ export const StorageService = {
     const snapshot = await getDocs(collection(db, USERS_COLLECTION));
     const users = snapshot.docs.map(doc => doc.data() as User);
     
-    // Filter out Master Admin, reset everyone else
-    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.id);
+    // Filter out Master Admin AND Hospital Admins, reset everyone else
+    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_ADMIN && u.id);
     
     console.log(`Found ${eligibleUsers.length} users to reset.`);
     if (eligibleUsers.length === 0) return;
@@ -250,8 +250,6 @@ export const StorageService = {
                 };
 
                 // Only Approved members go into "Renewal Pending" mode
-                // If they are not approved yet (PENDING/REJECTED), they just get their payment reset to UNPAID
-                // This satisfies "all users must be set to un paid"
                 if (user.registrationYear < newYear && user.status === UserStatus.APPROVED) {
                     updates.status = UserStatus.RENEWAL_PENDING;
                 }
@@ -274,7 +272,8 @@ export const StorageService = {
   getNextSequence: async (year: number): Promise<number> => {
       const users = await StorageService.getUsers();
       const yearPrefix = year.toString();
-      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role !== Role.MASTER_ADMIN);
+      // Exclude admins from sequence generation logic to avoid gaps or conflicts
+      const relevantUsers = users.filter(u => u.membershipNo.startsWith(yearPrefix) && u.role === Role.USER);
       
       if (relevantUsers.length === 0) return 1;
 

@@ -215,19 +215,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // --- FILTERED DATA LOGIC ---
   const getAuthorizedUsers = () => {
     // Hide master admin from lists
+    // Hide Hospital Admins from standard lists if we are in 'Users Overview' to avoid clutter
     const realUsers = users.filter(u => u.id !== 'admin-master');
-    if (currentUser.role === Role.MASTER_ADMIN) return realUsers;
+    
+    // Filter out Hospital Admins for general overview unless specifically looking for them in Admin Assign
+    const isAssignTab = activeTab === 'Admin Assign';
+    const effectiveUsers = isAssignTab 
+        ? realUsers 
+        : realUsers.filter(u => u.role !== Role.HOSPITAL_ADMIN);
+
+    if (currentUser.role === Role.MASTER_ADMIN) return effectiveUsers;
     if (currentUser.role === Role.MANDALAM_ADMIN) {
         const allowed = currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0 
             ? currentUser.assignedMandalams 
             : [currentUser.mandalam];
-        return realUsers.filter(u => allowed.includes(u.mandalam));
+        return effectiveUsers.filter(u => allowed.includes(u.mandalam));
     }
     if (currentUser.role === Role.CUSTOM_ADMIN) {
         if (currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0) {
-             return realUsers.filter(u => currentUser.assignedMandalams!.includes(u.mandalam));
+             return effectiveUsers.filter(u => currentUser.assignedMandalams!.includes(u.mandalam));
         }
-        return realUsers;
+        return effectiveUsers;
     }
     return [];
   };
@@ -352,6 +360,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setCustomPerms(user.permissions || []); 
           setCustomMandalams(user.assignedMandalams || []); 
           setShowCustomModal(true); 
+      } else if (role === Role.HOSPITAL_ADMIN) {
+          if(confirm(`Assign ${user.fullName} as Hospital Admin?`)) {
+              await StorageService.updateUser(user.id, {
+                  role: Role.HOSPITAL_ADMIN,
+                  // Hospital Admin permissions are implicit, but can be explicit if needed
+                  permissions: ['manage_benefits', 'view_users'] 
+              });
+              alert("Hospital Admin assigned.");
+          }
       } else {
           // Master or Revoke
           const isRevoke = role === Role.USER;
@@ -989,6 +1006,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                           <button onClick={()=>handleAssignAdmin(u, Role.MASTER_ADMIN)} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded font-bold shadow-sm hover:bg-purple-700">Make All Access Admin</button>
                                           <button onClick={()=>handleAssignAdmin(u, Role.MANDALAM_ADMIN)} className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded font-bold border border-blue-100 hover:bg-blue-100">Mandalam Admin</button>
                                           <button onClick={()=>handleAssignAdmin(u, Role.CUSTOM_ADMIN)} className="text-xs bg-slate-50 text-slate-700 px-3 py-1.5 rounded font-bold border border-slate-200 hover:bg-slate-100">Custom Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.HOSPITAL_ADMIN)} className="text-xs bg-pink-50 text-pink-700 px-3 py-1.5 rounded font-bold border border-pink-100 hover:bg-pink-100">Hospital Admin</button>
                                       </>
                                   )}
                                   {u.role !== Role.USER && (
@@ -1229,10 +1247,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                                            </span>
                                            <button onClick={() => deleteCardField(field.id)} className="text-red-400"><X className="w-3 h-3"/></button>
                                       </div>
+                                      
+                                      {/* Position Inputs (New Addition) */}
+                                      <div className="grid grid-cols-2 gap-2 mb-2 bg-slate-50 p-2 rounded">
+                                          <div>
+                                              <label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">X Pos (%)</label>
+                                              <input 
+                                                  type="number" 
+                                                  className="w-full text-xs border rounded p-1 outline-none focus:border-primary" 
+                                                  value={Math.round(field.x)} 
+                                                  onChange={(e) => updateCardField(field.id, { x: Number(e.target.value) })} 
+                                              />
+                                          </div>
+                                          <div>
+                                              <label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Y Pos (%)</label>
+                                              <input 
+                                                  type="number" 
+                                                  className="w-full text-xs border rounded p-1 outline-none focus:border-primary" 
+                                                  value={Math.round(field.y)} 
+                                                  onChange={(e) => updateCardField(field.id, { y: Number(e.target.value) })} 
+                                              />
+                                          </div>
+                                      </div>
+
                                       {field.type !== 'QR' && (
                                           <div className="grid grid-cols-2 gap-2">
-                                              <input type="number" className="w-full text-xs border rounded" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} />
-                                              <input type="color" className="w-full h-5 border rounded p-0" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} />
+                                              <div>
+                                                  <label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Size (px)</label>
+                                                  <input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} />
+                                              </div>
+                                              <div>
+                                                  <label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Color</label>
+                                                  <input type="color" className="w-full h-7 border rounded p-0 cursor-pointer" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} />
+                                              </div>
                                           </div>
                                       )}
                                   </div>
