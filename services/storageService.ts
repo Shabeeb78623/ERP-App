@@ -243,17 +243,20 @@ export const StorageService = {
             if (user.id) {
                 const ref = doc(db, USERS_COLLECTION, user.id);
                 
-                // Determine new status
-                // If they registered before this new year, they are now Pending Renewal
-                const isRenewal = user.registrationYear < newYear;
-                const newStatus = isRenewal ? UserStatus.RENEWAL_PENDING : user.status;
-
-                batch.set(ref, { 
+                const updates: any = { 
                     paymentStatus: PaymentStatus.UNPAID,
                     paymentRemarks: '',
-                    status: newStatus,
                     lastPaymentReset: resetDate 
-                }, { merge: true });
+                };
+
+                // Only Approved members go into "Renewal Pending" mode
+                // If they are not approved yet (PENDING/REJECTED), they just get their payment reset to UNPAID
+                // This satisfies "all users must be set to un paid"
+                if (user.registrationYear < newYear && user.status === UserStatus.APPROVED) {
+                    updates.status = UserStatus.RENEWAL_PENDING;
+                }
+
+                batch.set(ref, updates, { merge: true });
                 operationsInBatch++;
             }
         });
@@ -504,11 +507,16 @@ export const StorageService = {
       // Delete the target year
       await deleteDoc(doc(db, YEARS_COLLECTION, yearStr));
       
-      // If the deleted year was ACTIVE, we must promote the next newest year to ACTIVE
+      // Logic: Ensure there is always exactly one ACTIVE year if any years remain.
+      // If we deleted the active year, we promote the newest remaining year.
       if (targetYear?.status === 'ACTIVE' && allYears.length > 1) {
-          const nextActive = allYears.find(y => y.year !== year); // Because list is sorted desc, this gets the next newest
-          if (nextActive) {
-              await updateDoc(doc(db, YEARS_COLLECTION, nextActive.year.toString()), { status: 'ACTIVE' });
+          const remainingYears = allYears.filter(y => y.year !== year);
+          // Sort desc to find newest
+          remainingYears.sort((a, b) => b.year - a.year);
+          
+          const newest = remainingYears[0];
+          if (newest) {
+              await updateDoc(doc(db, YEARS_COLLECTION, newest.year.toString()), { status: 'ACTIVE' });
           }
       }
   },
