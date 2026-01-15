@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing, Mail, Copy, Send, Settings, CheckCircle } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
+import emailjs from '@emailjs/browser';
 import { 
   BarChart, 
   Bar, 
@@ -16,6 +17,13 @@ import {
   Pie,
   Cell
 } from 'recharts';
+
+// --- EMAILJS CONFIGURATION ---
+// Paste your keys from emailjs.com here to hardcode them.
+// If you leave these empty, you can still enter them via the "Configure Keys" button in the UI.
+const EMAILJS_SERVICE_ID = '';   // e.g., 'service_xyz'
+const EMAILJS_TEMPLATE_ID = '';  // e.g., 'template_abc'
+const EMAILJS_PUBLIC_KEY = '';   // e.g., 'user_123456'
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -80,6 +88,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAddHospitalModal, setShowAddHospitalModal] = useState(false);
   
+  // Email Modal State
+  const [showEmailReminderModal, setShowEmailReminderModal] = useState(false);
+  const [emailReminderSubject, setEmailReminderSubject] = useState('Action Required: Membership Fee Payment');
+  const [emailReminderBody, setEmailReminderBody] = useState(`Dear Member,
+
+This is a gentle reminder regarding your membership fee for the current fiscal year. 
+
+Please ensure your payment is completed to maintain your active status and access member benefits.
+
+You can view your status and ID card by logging into the member portal.
+
+Regards,
+Admin Team`);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [sendingProgress, setSendingProgress] = useState(0);
+  
+  // EmailJS Config State
+  const [emailConfig, setEmailConfig] = useState({
+      serviceId: EMAILJS_SERVICE_ID || localStorage.getItem('emailjs_service_id') || '',
+      templateId: EMAILJS_TEMPLATE_ID || localStorage.getItem('emailjs_template_id') || '',
+      publicKey: EMAILJS_PUBLIC_KEY || localStorage.getItem('emailjs_public_key') || ''
+  });
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -303,7 +335,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         return;
     }
     
-    if (confirm(`Send payment reminder notification to ${unpaidUsers.length} unpaid members?`)) {
+    if (confirm(`Send in-app notification to ${unpaidUsers.length} unpaid members?`)) {
         const currentYear = years.length > 0 ? years[0].year : new Date().getFullYear();
         try {
             await StorageService.addNotification({
@@ -322,6 +354,90 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
             alert("Failed to send reminders.");
         }
     }
+  };
+
+  const getUnpaidEmails = () => {
+      return authorizedUsers
+          .filter(u => u.role === Role.USER && u.paymentStatus !== PaymentStatus.PAID && u.email && u.email.includes('@'))
+          .map(u => u.email as string);
+  };
+
+  const handleOpenEmailModal = () => {
+      const emails = getUnpaidEmails();
+      if (emails.length === 0) {
+          alert("No unpaid members with valid email addresses found.");
+          return;
+      }
+      setShowEmailReminderModal(true);
+  };
+
+  const handleSaveEmailConfig = () => {
+      localStorage.setItem('emailjs_service_id', emailConfig.serviceId);
+      localStorage.setItem('emailjs_template_id', emailConfig.templateId);
+      localStorage.setItem('emailjs_public_key', emailConfig.publicKey);
+      alert("Email configuration saved locally!");
+      setShowEmailConfig(false);
+  };
+
+  const handleSendEmails = async () => {
+      const emails = getUnpaidEmails();
+      if (emails.length === 0) return;
+      
+      const { serviceId, templateId, publicKey } = emailConfig;
+      if (!serviceId || !templateId || !publicKey) {
+          alert("Please configure EmailJS settings first (click the gear icon) or hardcode them in the source code.");
+          setShowEmailConfig(true);
+          return;
+      }
+
+      if(!confirm(`This will send ${emails.length} emails using your EmailJS free tier quota. Continue?`)) return;
+
+      setIsSendingEmail(true);
+      setSendingProgress(0);
+
+      try {
+          emailjs.init(publicKey);
+          
+          let successCount = 0;
+          let failCount = 0;
+
+          // Sequential sending to avoid rate limiting on free tier
+          for (let i = 0; i < emails.length; i++) {
+              const email = emails[i];
+              try {
+                  await emailjs.send(serviceId, templateId, {
+                      to_email: email,
+                      subject: emailReminderSubject,
+                      message: emailReminderBody,
+                      // You can add more variables here that match your EmailJS template
+                  });
+                  successCount++;
+              } catch (err) {
+                  console.error(`Failed to send to ${email}`, err);
+                  failCount++;
+              }
+              // Update progress
+              setSendingProgress(Math.round(((i + 1) / emails.length) * 100));
+              
+              // Small delay to be polite to the API
+              await new Promise(r => setTimeout(r, 500));
+          }
+
+          alert(`Process Complete.\nSent: ${successCount}\nFailed: ${failCount}`);
+          setShowEmailReminderModal(false);
+      } catch (e) {
+          alert("Critical error during sending.");
+          console.error(e);
+      } finally {
+          setIsSendingEmail(false);
+          setSendingProgress(0);
+      }
+  };
+
+  const handleCopyEmails = () => {
+      const emails = getUnpaidEmails();
+      navigator.clipboard.writeText(emails.join(', '));
+      alert(`${emails.length} email addresses copied to clipboard!`);
   };
 
   const handleAddBenefitSubmit = () => {
@@ -933,6 +1049,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        >
                            <BellRing className="w-3 h-3" /> Remind All Unpaid
                        </button>
+                       <button 
+                            onClick={handleOpenEmailModal}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-sky-50 text-sky-700 text-xs font-bold rounded-lg hover:bg-sky-100 border border-sky-100 transition-colors"
+                        >
+                            <Mail className="w-3 h-3" /> Email Unpaid
+                        </button>
                        <input className="px-3 py-1.5 rounded-lg border text-sm outline-none focus:ring-1 focus:ring-primary" placeholder="Search user..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
                    </div>
                </div>
@@ -1446,7 +1568,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* --- MODALS (Omitted as they are unchanged) --- */}
+      {/* --- MODALS --- */}
       {/* Benefit Modal */}
       {isBenefitModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1466,6 +1588,117 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   <div className="flex justify-end gap-2 mt-6">
                       <button onClick={()=>setIsBenefitModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
                       <button onClick={handleAddBenefitSubmit} className="px-4 py-2 bg-primary text-white rounded">Save</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Email Reminder Modal */}
+      {showEmailReminderModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+              <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-sky-100 text-sky-600 rounded-lg">
+                              <Mail className="w-5 h-5" />
+                          </div>
+                          <div>
+                              <h3 className="font-bold text-lg text-slate-900">Send Payment Reminder Email</h3>
+                              <p className="text-xs text-slate-500">
+                                  {getUnpaidEmails().length} recipients selected
+                              </p>
+                          </div>
+                      </div>
+                      <button onClick={() => setShowEmailReminderModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X className="w-5 h-5 text-slate-500"/></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto space-y-4">
+                      
+                      {/* Configuration Warning/Toggle */}
+                      <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 flex justify-between items-center">
+                          <span className="flex items-center gap-2">
+                              <ShieldCheck className="w-4 h-4"/> 
+                              Powered by EmailJS (Free Tier Limit: 200/mo)
+                          </span>
+                          <button onClick={() => setShowEmailConfig(!showEmailConfig)} className="underline font-bold flex items-center gap-1">
+                              <Settings className="w-3 h-3" /> Configure Keys
+                          </button>
+                      </div>
+
+                      {showEmailConfig && (
+                          <div className="p-4 bg-slate-100 rounded-xl border border-slate-200 space-y-3 mb-4">
+                              <h4 className="font-bold text-slate-800 text-sm">EmailJS Configuration</h4>
+                              <p className="text-[10px] text-slate-500">Sign up at <a href="https://www.emailjs.com" target="_blank" className="underline text-blue-600">emailjs.com</a> to get these keys.</p>
+                              <input 
+                                  className="w-full p-2 border rounded text-xs" 
+                                  placeholder="Service ID (e.g., service_xyz)"
+                                  value={emailConfig.serviceId}
+                                  onChange={e => setEmailConfig({...emailConfig, serviceId: e.target.value})}
+                              />
+                              <input 
+                                  className="w-full p-2 border rounded text-xs" 
+                                  placeholder="Template ID (e.g., template_abc)"
+                                  value={emailConfig.templateId}
+                                  onChange={e => setEmailConfig({...emailConfig, templateId: e.target.value})}
+                              />
+                              <input 
+                                  className="w-full p-2 border rounded text-xs" 
+                                  placeholder="Public Key (e.g., user_123)"
+                                  value={emailConfig.publicKey}
+                                  onChange={e => setEmailConfig({...emailConfig, publicKey: e.target.value})}
+                              />
+                              <button onClick={handleSaveEmailConfig} className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold w-full">Save Configuration</button>
+                          </div>
+                      )}
+
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject Line</label>
+                          <input 
+                              className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-sky-500 text-sm font-medium"
+                              value={emailReminderSubject}
+                              onChange={e => setEmailReminderSubject(e.target.value)}
+                          />
+                      </div>
+                      
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Body</label>
+                          <textarea 
+                              className="w-full p-4 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-sky-500 text-sm h-32 resize-none leading-relaxed"
+                              value={emailReminderBody}
+                              onChange={e => setEmailReminderBody(e.target.value)}
+                          />
+                      </div>
+
+                      {isSendingEmail && (
+                          <div className="w-full bg-slate-100 rounded-full h-2.5 dark:bg-gray-700">
+                              <div className="bg-sky-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${sendingProgress}%` }}></div>
+                              <p className="text-center text-xs text-slate-500 mt-1">Sending... {sendingProgress}%</p>
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                      <button 
+                          onClick={handleCopyEmails}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-100 transition-colors text-sm shadow-sm"
+                      >
+                          <Copy className="w-4 h-4" /> Copy Addresses
+                      </button>
+                      <button 
+                          onClick={handleSendEmails}
+                          disabled={isSendingEmail}
+                          className="flex items-center gap-2 px-6 py-2.5 bg-sky-600 text-white font-bold rounded-lg hover:bg-sky-700 transition-colors text-sm shadow-md shadow-sky-600/20 disabled:opacity-50"
+                      >
+                          {isSendingEmail ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 animate-spin" /> Sending...
+                              </>
+                          ) : (
+                              <>
+                                <Send className="w-4 h-4" /> Send Emails Now
+                              </>
+                          )}
+                      </button>
                   </div>
               </div>
           </div>
@@ -1645,117 +1878,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   </div>
               </div>
           </div>
-      )}
-
-      {/* Question Modal */}
-      {isQuestionModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-              <div className="bg-white w-full max-w-lg rounded-xl p-6 max-h-[90vh] overflow-y-auto space-y-4">
-                  <h3 className="font-bold text-lg text-slate-900 border-b pb-2">
-                      {questionForm.id ? 'Edit Question' : 'Add New Question'}
-                  </h3>
-                  
-                  <div>
-                      <label className="block text-xs font-bold text-slate-500 mb-1">Question Label</label>
-                      <input className="w-full border p-2 rounded text-sm focus:ring-1 focus:ring-primary outline-none" placeholder="e.g. What is your profession?" value={questionForm.label || ''} onChange={e => setQuestionForm({...questionForm, label: e.target.value})} />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                      <div>
-                          <label className="block text-xs font-bold text-slate-500 mb-1">System Field Map</label>
-                          <select className="w-full border p-2 rounded text-sm bg-slate-50" value={questionForm.systemMapping || 'NONE'} onChange={e => setQuestionForm({...questionForm, systemMapping: e.target.value as any})}>
-                              {SYSTEM_FIELD_MAPPING.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                          </select>
-                          <p className="text-[10px] text-slate-400 mt-1">Link to core user profile data</p>
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-slate-500 mb-1">Input Type</label>
-                          <select className="w-full border p-2 rounded text-sm bg-slate-50" value={questionForm.type} onChange={e => setQuestionForm({...questionForm, type: e.target.value as FieldType})}>
-                              {Object.values(FieldType).map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                      </div>
-                  </div>
-
-                  <div>
-                       <label className="flex items-center gap-2 cursor-pointer">
-                           <input type="checkbox" checked={questionForm.required} onChange={e => setQuestionForm({...questionForm, required: e.target.checked})} />
-                           <span className="text-sm font-bold text-slate-700">Required Field</span>
-                       </label>
-                  </div>
-
-                  {(questionForm.type === FieldType.DROPDOWN || questionForm.type === FieldType.DEPENDENT_DROPDOWN) && (
-                       <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                           <p className="text-xs font-bold mb-2 uppercase text-slate-500">Dropdown Options</p>
-                           <div className="flex gap-2 mb-3">
-                               <input className="flex-1 border p-2 text-sm rounded outline-none" value={newOption} onChange={e => setNewOption(e.target.value)} placeholder="Type new option..." onKeyDown={e => {
-                                   if (e.key === 'Enter' && newOption) {
-                                       setQuestionForm({...questionForm, options: [...(questionForm.options||[]), newOption]}); setNewOption('');
-                                   }
-                               }} />
-                               <button onClick={() => { if(newOption) { setQuestionForm({...questionForm, options: [...(questionForm.options||[]), newOption]}); setNewOption(''); } }} className="px-4 bg-primary text-white rounded font-bold text-xs hover:bg-primary-dark">Add</button>
-                           </div>
-                           <div className="flex flex-wrap gap-2">
-                               {questionForm.options?.map(o => (
-                                   <span key={o} className="bg-white px-3 py-1 rounded-full border shadow-sm text-xs flex items-center gap-2 text-slate-700">
-                                       {o} <button onClick={() => setQuestionForm({...questionForm, options: questionForm.options?.filter(x => x !== o)})}><X className="w-3 h-3 text-red-500 hover:text-red-700"/></button>
-                                   </span>
-                               ))}
-                               {(!questionForm.options || questionForm.options.length === 0) && <p className="text-xs text-slate-400 italic">No options added yet.</p>}
-                           </div>
-                       </div>
-                  )}
-
-                  <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                      <button onClick={() => setIsQuestionModalOpen(false)} className="px-5 py-2.5 bg-slate-100 rounded-lg font-bold text-slate-600 hover:bg-slate-200 transition-colors">Cancel</button>
-                      <button onClick={async () => { 
-                          if(questionForm.label) { 
-                              await StorageService.saveQuestion({ ...questionForm, id: questionForm.id || `q_${Date.now()}` } as RegistrationQuestion); 
-                              setQuestions(await StorageService.getQuestions()); 
-                              setIsQuestionModalOpen(false); 
-                          } else {
-                              alert("Label is required");
-                          }
-                      }} className="px-5 py-2.5 bg-primary text-white rounded-lg font-bold hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20">Save Question</button>
-                  </div>
-              </div>
-          </div>
-      )}
-      
-      {/* View User Detail Modal */}
-      {viewingUser && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white w-full max-w-lg rounded-xl p-6 shadow-2xl">
-                <div className="flex justify-between items-start mb-6 border-b pb-4">
-                    <div>
-                        <h3 className="font-bold text-xl text-slate-900">{viewingUser.fullName}</h3>
-                        <p className="text-slate-500 text-sm">{viewingUser.membershipNo}</p>
-                    </div>
-                    <button onClick={() => setViewingUser(null)} className="p-1 hover:bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500"/></button>
-                </div>
-                <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm max-h-[60vh] overflow-y-auto pr-2">
-                    <div><p className="text-xs font-bold text-slate-400 uppercase">Mobile</p><p className="font-medium">{viewingUser.mobile}</p></div>
-                    <div><p className="text-xs font-bold text-slate-400 uppercase">Emirates ID</p><p className="font-medium">{viewingUser.emiratesId}</p></div>
-                    <div><p className="text-xs font-bold text-slate-400 uppercase">Mandalam</p><p className="font-medium">{viewingUser.mandalam}</p></div>
-                    <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase">Status</p>
-                        <span className={`px-2 py-0.5 text-xs rounded font-bold ${viewingUser.status===UserStatus.APPROVED?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}`}>{viewingUser.status}</span>
-                    </div>
-                    <div className="col-span-2"><p className="text-xs font-bold text-slate-400 uppercase">Address (UAE)</p><p className="font-medium text-slate-700">{viewingUser.addressUAE || '-'}</p></div>
-                    
-                    {/* Dynamic Fields */}
-                    {viewingUser.customData && Object.entries(viewingUser.customData).map(([k,v]) => {
-                         const q = questions.find(q=>q.id===k);
-                         if(!q) return null;
-                         return (
-                             <div key={k} className="col-span-2 border-t border-dashed border-slate-100 pt-3">
-                                 <p className="text-xs font-bold text-slate-400 uppercase">{q.label}</p>
-                                 <p className="font-medium text-slate-700 break-words">{String(v)}</p>
-                             </div>
-                         )
-                    })}
-                </div>
-            </div>
-        </div>
       )}
 
       {/* Hospital Account Creation Modal */}

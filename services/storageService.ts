@@ -9,7 +9,8 @@ import {
     query, 
     onSnapshot,
     writeBatch,
-    getDoc
+    getDoc,
+    addDoc
 } from 'firebase/firestore';
 import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
@@ -220,6 +221,31 @@ export const StorageService = {
   
   deleteUser: async (userId: string): Promise<void> => {
       await deleteDoc(doc(db, USERS_COLLECTION, userId));
+  },
+
+  // --- EMAILS (Requires Firebase Trigger Email Extension) ---
+  sendEmail: async (to: string[], subject: string, body: string): Promise<void> => {
+      try {
+          // Check if there are recipients
+          if (!to || to.length === 0) return;
+
+          const mailCollection = collection(db, 'mail');
+          
+          // We use BCC to send to multiple recipients in one go without them seeing each other
+          // This requires the standard "Trigger Email" extension configuration in Firebase.
+          await addDoc(mailCollection, {
+              to: 'noreply@vadakara-nri.com', // Placeholder 'to' address required by some extension configs
+              bcc: to, 
+              message: {
+                  subject: subject,
+                  text: body,
+                  html: body.replace(/\n/g, '<br>') // Convert newlines to HTML breaks
+              }
+          });
+      } catch (e) {
+          console.error("Error queuing email:", e);
+          throw e;
+      }
   },
 
   resetAllUserPayments: async (newYear: number): Promise<void> => {
