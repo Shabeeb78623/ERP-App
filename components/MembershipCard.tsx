@@ -13,9 +13,10 @@ declare global {
 
 interface MembershipCardProps {
   user: User;
+  activeYear?: number;
 }
 
-const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
+const MembershipCard: React.FC<MembershipCardProps> = ({ user, activeYear }) => {
   const frontCardRef = useRef<HTMLDivElement>(null);
   const backCardRef = useRef<HTMLDivElement>(null);
   const [cardConfig, setCardConfig] = useState<CardConfig | null>(null);
@@ -48,6 +49,7 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
 
   // Check if User is Approved AND Payment is Paid
   if (user.status !== UserStatus.APPROVED || user.paymentStatus !== PaymentStatus.PAID) {
+      const yearDisplay = activeYear ? ` for ${activeYear}` : '';
       return (
           <div className="max-w-md mx-auto mt-12 text-center p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
               <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -56,7 +58,7 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
               <h3 className="text-lg font-bold text-slate-900">Card Unavailable</h3>
               <p className="text-slate-500 mt-2">
                   {user.paymentStatus !== PaymentStatus.PAID 
-                      ? "Your membership payment must be approved to access your ID card."
+                      ? `Your membership renewal${yearDisplay} must be paid to access your ID card.`
                       : "Your account is pending approval."}
               </p>
           </div>
@@ -83,12 +85,6 @@ const MembershipCard: React.FC<MembershipCardProps> = ({ user }) => {
                     if (field.type === 'QR') {
                         // Generate QR Data URL
                         const verifyUrl = `${window.location.origin}?verify=${user.id}`;
-                        // We use a React Effect style logic inside mapping or just use sync version if possible.
-                        // QRCode.toDataURL is async usually. 
-                        // To keep it simple in render, we can use a canvas or sync generation if library supports, 
-                        // BUT standard lib is async.
-                        // For simplicity in this component, let's use an <img> with a data URI generated via a component wrapper
-                        // Or just render a QR component.
                         
                         return (
                              <div

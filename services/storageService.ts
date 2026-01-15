@@ -217,6 +217,10 @@ export const StorageService = {
     // Use setDoc with merge:true to create if missing (safety for admin user) or update if exists
     await setDoc(userRef, updates, { merge: true });
   },
+  
+  deleteUser: async (userId: string): Promise<void> => {
+      await deleteDoc(doc(db, USERS_COLLECTION, userId));
+  },
 
   resetAllUserPayments: async (newYear: number): Promise<void> => {
     console.log("Starting bulk payment reset...");

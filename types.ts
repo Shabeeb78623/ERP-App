@@ -1,4 +1,5 @@
 
+
 export enum Role {
   MASTER_ADMIN = 'MASTER_ADMIN',
   MANDALAM_ADMIN = 'MANDALAM_ADMIN',
@@ -112,6 +113,7 @@ export interface User {
   paymentRemarks?: string; // Stores user entered payment details
   approvedBy?: string; // Stores the name of the admin who approved
   approvedAt?: string; // Date of approval
+  hospitalName?: string; // Name of hospital for HOSPITAL_ADMIN
 
   // Dynamic Data
   customData?: Record<string, any>;

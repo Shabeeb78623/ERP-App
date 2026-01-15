@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
-import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, CalendarClock } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
@@ -64,11 +64,19 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
           </div>
           
           <div className="flex gap-4 relative z-10">
-               <div className={`px-4 py-3 rounded-xl flex items-center gap-3 border ${user.status === UserStatus.APPROVED ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
-                   {user.status === UserStatus.APPROVED ? <ShieldCheck className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+               <div className={`px-4 py-3 rounded-xl flex items-center gap-3 border bg-white shadow-sm`}>
+                   <CalendarClock className="w-5 h-5 text-indigo-600" />
+                   <div>
+                       <p className="text-xs font-bold uppercase opacity-70 text-slate-500">Fiscal Year</p>
+                       <p className="font-bold text-slate-900">{activeYear}</p>
+                   </div>
+               </div>
+
+               <div className={`px-4 py-3 rounded-xl flex items-center gap-3 border ${user.status === UserStatus.APPROVED && user.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+                   {user.status === UserStatus.APPROVED && user.paymentStatus === PaymentStatus.PAID ? <ShieldCheck className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
                    <div>
                        <p className="text-xs font-bold uppercase opacity-70">Account Status</p>
-                       <p className="font-bold">{user.status}</p>
+                       <p className="font-bold">{user.paymentStatus === PaymentStatus.PAID ? 'Active' : 'Action Required'}</p>
                    </div>
                </div>
           </div>
@@ -79,13 +87,28 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
         <div className="lg:col-span-2 space-y-8">
             
             {/* Payment Section */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 relative">
+                {/* Visual Renewal Banner if applicable */}
+                {isRenewal && user.paymentStatus !== PaymentStatus.PAID && (
+                    <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded-r-lg">
+                        <div className="flex items-start gap-3">
+                            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                            <div>
+                                <h4 className="font-bold text-amber-900">Membership Renewal Due for {activeYear}</h4>
+                                <p className="text-sm text-amber-700 mt-1">
+                                    Your ID card is currently locked. Please pay the renewal fee to reactivate your membership card and benefits.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-blue-50 text-primary rounded-lg">
                         <Wallet className="w-6 h-6" />
                     </div>
                     <h2 className="text-xl font-bold text-slate-900">
-                        {isRenewal ? 'Membership Renewal' : 'Membership Fees'}
+                        {isRenewal ? `Renewal for ${activeYear}` : 'Membership Fees'}
                     </h2>
                 </div>
 
@@ -129,11 +152,11 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                             {user.paymentStatus === PaymentStatus.PAID ? <CheckCircle2 className="w-8 h-8" /> : <Wallet className="w-8 h-8" />}
                         </div>
                         <h3 className="text-lg font-bold text-slate-900">
-                            {user.paymentStatus === PaymentStatus.PAID ? 'Membership Active' : 'Payment Under Review'}
+                            {user.paymentStatus === PaymentStatus.PAID ? `Membership Active (${activeYear})` : 'Payment Under Review'}
                         </h3>
                         <p className="text-slate-500 max-w-xs mx-auto mt-2 text-sm">
                             {user.paymentStatus === PaymentStatus.PAID 
-                                ? 'Your dues are cleared for this year.' 
+                                ? 'Your dues are cleared for the current fiscal year.' 
                                 : 'Admin is reviewing your payment submission. Status will be updated shortly.'}
                         </p>
                         {user.paymentStatus === PaymentStatus.PENDING && user.paymentRemarks && (

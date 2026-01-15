@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import { 
@@ -22,7 +22,7 @@ interface AdminDashboardProps {
   users: User[];
   benefits: BenefitRecord[];
   notifications: Notification[];
-  years: YearConfig[]; // Added prop
+  years: YearConfig[]; 
   stats: DashboardStats;
   onUpdateUser: (userId: string, updates: Partial<User>) => void;
   onAddBenefit: (benefit: BenefitRecord) => void;
@@ -33,7 +33,7 @@ interface AdminDashboardProps {
 
 const ALL_TABS = [
   'User Approvals', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
-  'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
+  'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Member Search'
 ];
 
 const ADMIN_PERMISSIONS = [
@@ -62,9 +62,14 @@ const SYSTEM_FIELD_MAPPING = [
 ];
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, years, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
-  const [activeTab, setActiveTab] = useState('User Approvals');
+  const [activeTab, setActiveTab] = useState(currentUser.role === Role.HOSPITAL_ADMIN ? 'Member Search' : 'User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sectorFilter, setSectorFilter] = useState<string>('ALL');
   
+  // Hospital Scanner State
+  const [scanIdInput, setScanIdInput] = useState('');
+  const [scannedUser, setScannedUser] = useState<User | null>(null);
+
   // Modal States
   const [isBenefitModalOpen, setIsBenefitModalOpen] = useState(false);
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
@@ -73,6 +78,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAddHospitalModal, setShowAddHospitalModal] = useState(false);
   
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -116,6 +122,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       emirate: Emirate.DUBAI
   });
 
+  const [newHospitalForm, setNewHospitalForm] = useState({
+      fullName: '',
+      hospitalName: '',
+      username: '',
+      password: ''
+  });
+
   // Admin Assignment
   const [selectedUserForAdmin, setSelectedUserForAdmin] = useState<User | null>(null);
   const [customPerms, setCustomPerms] = useState<string[]>([]);
@@ -130,22 +143,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const cardImageRef = useRef<HTMLImageElement>(null);
   const [draggedFieldId, setDraggedFieldId] = useState<string | null>(null);
   
-  // Ref for Dragging to prevent stale closures in event listeners
   const cardConfigRef = useRef<CardConfig | null>(null);
   useEffect(() => { cardConfigRef.current = cardConfig; }, [cardConfig]);
 
   // Filter Tabs based on Role
   const visibleTabs = ALL_TABS.filter(tab => {
-      // Restricted tabs only for Master Admin
+      if (currentUser.role === Role.HOSPITAL_ADMIN) {
+          return ['Member Search', 'Benefits'].includes(tab);
+      }
       if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Import Users'].includes(tab)) {
           return currentUser.role === Role.MASTER_ADMIN;
       }
+      if (tab === 'Member Search') return false;
       return true;
   });
 
   useEffect(() => {
     setSearchTerm('');
-    // If active tab is restricted and user is not master, switch to default
     if (!visibleTabs.includes(activeTab)) {
         setActiveTab(visibleTabs[0]);
     }
@@ -159,25 +173,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       loadData();
   }, [activeTab, isQuestionModalOpen]);
 
-  // --- DRAG AND DROP LOGIC (WINDOW BASED) ---
+  // Drag and drop logic...
   useEffect(() => {
     if (!draggedFieldId) return;
 
     const handleWindowMouseMove = (e: MouseEvent) => {
         const config = cardConfigRef.current;
         if (!config || !cardImageRef.current) return;
-
         const rect = cardImageRef.current.getBoundingClientRect();
-        
-        // Calculate coordinates relative to the image
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-
-        // Calculate percentage (robust against resizing)
         let xPct = (x / rect.width) * 100;
         let yPct = (y / rect.height) * 100;
-
-        // Clamp to keep inside 0-100%
         xPct = Math.max(0, Math.min(100, xPct));
         yPct = Math.max(0, Math.min(100, yPct));
 
@@ -185,44 +192,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
             ...config[activeCardSide],
             fields: config[activeCardSide].fields.map(f => f.id === draggedFieldId ? { ...f, x: xPct, y: yPct } : f)
         };
-
-        // Update state locally for smooth UI
-        setCardConfig({
-            ...config,
-            [activeCardSide]: updatedSide
-        });
+        setCardConfig({ ...config, [activeCardSide]: updatedSide });
     };
 
     const handleWindowMouseUp = async () => {
         setDraggedFieldId(null);
-        // Save final state to DB
         if (cardConfigRef.current) {
             await StorageService.saveCardConfig(cardConfigRef.current);
         }
     };
 
-    // Attach listeners to window to track mouse even if it leaves the element
     window.addEventListener('mousemove', handleWindowMouseMove);
     window.addEventListener('mouseup', handleWindowMouseUp);
-
     return () => {
         window.removeEventListener('mousemove', handleWindowMouseMove);
         window.removeEventListener('mouseup', handleWindowMouseUp);
     };
   }, [draggedFieldId, activeCardSide]);
 
-
-  // --- FILTERED DATA LOGIC ---
   const getAuthorizedUsers = () => {
-    // Hide master admin from lists
-    // Hide Hospital Admins from standard lists if we are in 'Users Overview' to avoid clutter
     const realUsers = users.filter(u => u.id !== 'admin-master');
-    
-    // Filter out Hospital Admins for general overview unless specifically looking for them in Admin Assign
     const isAssignTab = activeTab === 'Admin Assign';
-    const effectiveUsers = isAssignTab 
+    const isHospitalTab = activeTab === 'Member Search';
+    const effectiveUsers = (isAssignTab || isHospitalTab)
         ? realUsers 
-        : realUsers.filter(u => u.role !== Role.HOSPITAL_ADMIN);
+        : realUsers.filter(u => u.role === Role.USER);
 
     if (currentUser.role === Role.MASTER_ADMIN) return effectiveUsers;
     if (currentUser.role === Role.MANDALAM_ADMIN) {
@@ -231,7 +225,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
             : [currentUser.mandalam];
         return effectiveUsers.filter(u => allowed.includes(u.mandalam));
     }
-    if (currentUser.role === Role.CUSTOM_ADMIN) {
+    if (currentUser.role === Role.CUSTOM_ADMIN || currentUser.role === Role.HOSPITAL_ADMIN) {
         if (currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0) {
              return effectiveUsers.filter(u => currentUser.assignedMandalams!.includes(u.mandalam));
         }
@@ -243,22 +237,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const authorizedUsers = getAuthorizedUsers();
   const filteredList = authorizedUsers.filter(u => {
       const term = searchTerm.toLowerCase();
-      return (
+      const matchesSearch = (
           u.fullName.toLowerCase().includes(term) ||
           u.membershipNo.toLowerCase().includes(term) ||
           u.mobile.includes(term) ||
           (u.email && u.email.toLowerCase().includes(term)) ||
           u.emiratesId.includes(term)
       );
+      const matchesSector = sectorFilter === 'ALL' || u.mandalam === sectorFilter;
+      return matchesSearch && matchesSector;
   });
   
-  // Benefits Filter
   const filteredBenefits = benefits.filter(b => authorizedUsers.some(u => u.id === b.userId) && (
       (b.userName && b.userName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (b.regNo && b.regNo.toLowerCase().includes(searchTerm.toLowerCase()))
   ));
 
-  // --- HANDLERS ---
+  const handleManualScan = () => {
+      const user = users.find(u => u.membershipNo === scanIdInput.trim());
+      if (user) {
+          setScannedUser(user);
+      } else {
+          alert("Member not found with this ID.");
+          setScannedUser(null);
+      }
+  };
 
   const handleApproveUser = async (id: string) => {
       if(confirm("Are you sure you want to APPROVE this user?")) {
@@ -280,7 +283,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       if(confirm("Confirm payment received and approve user?")) {
           await StorageService.updateUser(id, { 
               paymentStatus: PaymentStatus.PAID, 
-              status: UserStatus.APPROVED, // Explicitly set back to APPROVED incase they were RENEWAL_PENDING
+              status: UserStatus.APPROVED, 
               approvedBy: currentUser.fullName, 
               approvedAt: new Date().toLocaleDateString() 
           });
@@ -289,11 +292,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   const handleRejectPayment = async (id: string) => {
       if(confirm("Reject this payment submission? User will be notified.")) {
-          await StorageService.updateUser(id, { 
-              paymentStatus: PaymentStatus.UNPAID
-              // We keep paymentRemarks so history shows they attempted payment
-          });
+          await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID });
       }
+  };
+
+  const handleRemindUnpaid = async () => {
+    const unpaidUsers = authorizedUsers.filter(u => u.paymentStatus !== PaymentStatus.PAID && u.role === Role.USER);
+    if (unpaidUsers.length === 0) {
+        alert("No unpaid members found in your list.");
+        return;
+    }
+    
+    if (confirm(`Send payment reminder notification to ${unpaidUsers.length} unpaid members?`)) {
+        const currentYear = years.length > 0 ? years[0].year : new Date().getFullYear();
+        try {
+            await StorageService.addNotification({
+                id: `notif-remind-${Date.now()}`,
+                title: "Membership Payment Reminder",
+                message: `Please complete your membership payment or renewal for the fiscal year ${currentYear} to access your ID card and benefits.`,
+                date: new Date().toLocaleDateString(),
+                read: false,
+                type: 'INDIVIDUAL',
+                targetAudience: 'Unpaid Members',
+                recipients: unpaidUsers.map(u => u.id)
+            });
+            alert("Reminders sent successfully!");
+        } catch (e) {
+            console.error(e);
+            alert("Failed to send reminders.");
+        }
+    }
   };
 
   const handleAddBenefitSubmit = () => {
@@ -319,17 +347,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       try {
           let recipients: string[] | undefined = undefined;
           let audienceLabel = 'All Members';
-
           if (notifTarget !== 'ALL') {
-              // Targeting specific Mandalam
               recipients = users.filter(u => u.mandalam === notifTarget).map(u => u.id);
               audienceLabel = `${notifTarget} Members`;
           } else if (currentUser.role === Role.MANDALAM_ADMIN) {
-              // Mandalam Admin targeting their own users
               recipients = authorizedUsers.map(u => u.id);
               audienceLabel = 'My Members';
           }
-          
           await StorageService.addNotification({
               id: `notif-${Date.now()}`,
               title: notifTitle,
@@ -338,7 +362,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               read: false,
               type: recipients ? 'INDIVIDUAL' : 'BROADCAST',
               targetAudience: audienceLabel,
-              recipients: recipients // If undefined, it's a true broadcast
+              recipients: recipients 
           });
           alert("Notification Sent!");
           setNotifTitle(''); setNotifMessage('');
@@ -349,6 +373,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setSendingNotif(false); 
       }
   };
+
+  // ... (Other handlers like assign admin, import users, card vars, etc. remain the same) ...
 
   const handleAssignAdmin = async (user: User, role: Role) => {
       if (role === Role.MANDALAM_ADMIN) { 
@@ -361,26 +387,75 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setCustomMandalams(user.assignedMandalams || []); 
           setShowCustomModal(true); 
       } else if (role === Role.HOSPITAL_ADMIN) {
-          if(confirm(`Assign ${user.fullName} as Hospital Admin?`)) {
+          if(confirm(`Assign ${user.fullName} as Hospital Staff?`)) {
+              const hospitalName = prompt("Enter Hospital Name:") || "General Hospital";
               await StorageService.updateUser(user.id, {
                   role: Role.HOSPITAL_ADMIN,
-                  // Hospital Admin permissions are implicit, but can be explicit if needed
+                  hospitalName,
                   permissions: ['manage_benefits', 'view_users'] 
               });
-              alert("Hospital Admin assigned.");
+              alert("Hospital Staff assigned.");
           }
       } else {
-          // Master or Revoke
           const isRevoke = role === Role.USER;
           const actionName = isRevoke ? "Revoke Admin Rights" : "Grant All Access Admin";
           if(confirm(`${actionName} for ${user.fullName}?`)) {
               await StorageService.updateUser(user.id, { 
                   role: role, 
                   assignedMandalams: [], 
-                  permissions: [] // Master admin implies full permissions implicitly
+                  permissions: [] 
               });
               alert("User role updated successfully.");
           }
+      }
+  };
+
+  const handleDeleteUserAccount = async (userId: string, name: string) => {
+      if (confirm(`Are you sure you want to PERMANENTLY DELETE the account for ${name}? This action cannot be undone.`)) {
+          try {
+              await StorageService.deleteUser(userId);
+              alert("Account deleted successfully.");
+          } catch (e) {
+              alert("Failed to delete account. Please try again.");
+          }
+      }
+  };
+
+  // ... (Hospital modal creation, user import etc) ...
+
+  const handleAddHospitalSubmit = async () => {
+      const { fullName, hospitalName, username, password } = newHospitalForm;
+      if (!fullName || !hospitalName || !username || !password) {
+          alert("Please fill all fields.");
+          return;
+      }
+      try {
+          const newUser: User = {
+              id: `hosp-${Date.now()}`,
+              fullName,
+              hospitalName,
+              email: username,
+              password,
+              role: Role.HOSPITAL_ADMIN,
+              mobile: '000',
+              whatsapp: '000',
+              emiratesId: `H-${Date.now()}`,
+              mandalam: Mandalam.VATAKARA,
+              emirate: Emirate.DUBAI,
+              status: UserStatus.APPROVED,
+              paymentStatus: PaymentStatus.PAID,
+              registrationYear: new Date().getFullYear(),
+              photoUrl: '',
+              membershipNo: `HOSP-${Date.now().toString().slice(-4)}`,
+              registrationDate: new Date().toLocaleDateString(),
+              permissions: ['manage_benefits', 'view_users']
+          };
+          await StorageService.addUser(newUser);
+          alert("Hospital account created successfully.");
+          setShowAddHospitalModal(false);
+          setNewHospitalForm({ fullName: '', hospitalName: '', username: '', password: '' });
+      } catch (e: any) {
+          alert(e.message);
       }
   };
 
@@ -415,20 +490,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           const text = await importFile.text();
           const lines = text.split('\n').filter(l => l.trim());
           const newUsers: User[] = [];
-          
-          // Get starting sequence from DB
           const currentYear = new Date().getFullYear();
           let currentSeq = await StorageService.getNextSequence(currentYear);
-
-          // Assuming CSV headers: Name, EmiratesID, Mobile, Emirate, Mandalam, Date(optional)
-          // Skip header row if exists
           const startIdx = lines[0].toLowerCase().includes('name') ? 1 : 0;
-
           for (let i = startIdx; i < lines.length; i++) {
                const cols = lines[i].split(',');
                if (cols.length >= 2) {
                    const generatedRegNo = `${currentYear}${currentSeq.toString().padStart(4, '0')}`;
-                   
                    newUsers.push({
                        id: `user-${Date.now()}-${i}`,
                        fullName: cols[0]?.trim() || 'Unknown',
@@ -438,8 +506,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        emirate: (cols[3]?.trim() as Emirate) || Emirate.DUBAI,
                        mandalam: (cols[4]?.trim() as Mandalam) || Mandalam.VATAKARA,
                        registrationDate: cols[5]?.trim() || new Date().toLocaleDateString(), 
-                       
-                       // Defaults
                        status: UserStatus.APPROVED,
                        paymentStatus: PaymentStatus.UNPAID,
                        role: Role.USER,
@@ -451,7 +517,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                        approvedBy: currentUser.fullName,
                        approvedAt: new Date().toLocaleDateString()
                    });
-                   currentSeq++; // Increment seq for next user
+                   currentSeq++;
                }
           }
           await StorageService.addUsers(newUsers, setImportProgress);
@@ -471,7 +537,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           const currentYear = new Date().getFullYear();
           const nextSeq = await StorageService.getNextSequence(currentYear);
           const membershipNo = `${currentYear}${nextSeq.toString().padStart(4, '0')}`;
-          
           const newUser: User = {
               ...newUserForm as User,
               id: `user-${Date.now()}`,
@@ -486,7 +551,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               whatsapp: newUserForm.mobile || '',
               emiratesId: newUserForm.emiratesId || `784${Date.now()}`
           };
-          
           await StorageService.addUser(newUser);
           setShowAddUserModal(false);
           setNewUserForm({ role: Role.USER, status: UserStatus.APPROVED, paymentStatus: PaymentStatus.UNPAID, mandalam: Mandalam.VATAKARA, emirate: Emirate.DUBAI });
@@ -502,16 +566,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           alert("Please enter a valid year (2024-2050)");
           return;
       }
-
       if(!confirm(`ACTION: START FISCAL YEAR ${year}\n\n1. Current active year will be archived.\n2. ALL members will be reset to 'UNPAID'.\n3. Renewal fees will apply for existing members.\n\nAre you sure you want to proceed?`)) return;
-      
       setIsProcessingYear(true);
       try {
           await StorageService.createNewYear(year);
-          // Pass the new year so the logic can distinguish old vs new users
           await StorageService.resetAllUserPayments(year);
           alert(`Success! Fiscal Year ${year} started. Payment status for all members has been reset to UNPAID.`);
-          setNewYearInput(String(year + 1)); // Prepare next year
+          setNewYearInput(String(year + 1));
       } catch (e: any) {
           console.error("New Year Error:", e);
           alert("Operation Failed: " + e.message);
@@ -522,10 +583,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   const handleDeleteYear = async (year: number) => {
       if (!confirm(`Are you sure you want to delete the fiscal year ${year}? This will remove it from the history.`)) return;
-      
       try {
           await StorageService.deleteYear(year);
-          // UI updates automatically via subscription
       } catch (e) {
           console.error(e);
           alert("Failed to delete year.");
@@ -539,7 +598,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setEditUserForm({});
   };
 
-  // --- CARD MANAGEMENT HANDLERS ---
   const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
@@ -550,27 +608,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               const img = new Image();
               img.onload = async () => {
                   let updatedConfig = cardConfig;
-                  
-                  // Initialize if null
                   if (!updatedConfig) {
                       updatedConfig = {
                           front: { templateImage: '', fields: [], width: 800, height: 500 },
                           back: { templateImage: '', fields: [], width: 800, height: 500 }
                       };
                   }
-
                   const newSideConfig = {
                       templateImage: base64,
                       fields: updatedConfig[activeCardSide].fields || [],
                       width: img.width,
                       height: img.height
                   };
-
-                  updatedConfig = {
-                      ...updatedConfig,
-                      [activeCardSide]: newSideConfig
-                  };
-
+                  updatedConfig = { ...updatedConfig, [activeCardSide]: newSideConfig };
                   await StorageService.saveCardConfig(updatedConfig);
                   setCardConfig(updatedConfig);
                   setIsUploadingTemplate(false);
@@ -583,12 +633,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   const addCardVariable = async () => {
       if (!cardConfig || !selectedVariable) return;
-      
       let label = "Unknown";
       let key = selectedVariable;
       let sample = "Sample Text";
       let type: 'TEXT' | 'QR' = 'TEXT';
-
       if (key === 'membershipNo') {
           label = 'Registration No';
           sample = '20250001';
@@ -607,7 +655,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
               sample = q.label;
           }
       }
-
       const newField: CardField = {
           id: `field-${Date.now()}`,
           label,
@@ -620,12 +667,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           sampleValue: sample,
           type
       };
-
       const updatedSide = {
           ...cardConfig[activeCardSide],
           fields: [...cardConfig[activeCardSide].fields, newField]
       };
-
       const updatedConfig = { ...cardConfig, [activeCardSide]: updatedSide };
       setCardConfig(updatedConfig);
       await StorageService.saveCardConfig(updatedConfig);
@@ -656,7 +701,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setDraggedFieldId(id);
   };
 
-  // --- STATS CARD COMPONENT ---
   const StatCard = ({ label, value, colorClass }: { label: string, value: string | number, colorClass: string }) => (
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
           <p className={`text-2xl font-bold ${colorClass}`}>{value}</p>
@@ -664,15 +708,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       </div>
   );
 
-  // --- Payment Submission Lists ---
   const pendingPayments = filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING);
-  // History includes Paid users OR Unpaid users who have attempted a payment (have remarks)
   const paymentHistory = filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID || (u.paymentStatus === PaymentStatus.UNPAID && u.paymentRemarks));
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
+            {currentUser.role === Role.HOSPITAL_ADMIN && <p className="text-sm text-slate-500 font-medium">Access: {currentUser.hospitalName}</p>}
+          </div>
           <div className="flex items-center gap-2">
                <span className="text-sm font-medium text-slate-500">Year:</span>
                <select className="bg-white border border-slate-200 text-sm font-bold rounded px-2 py-1 outline-none">
@@ -685,26 +730,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       </div>
 
-      {/* --- STATS GRID --- */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-           {/* Row 1 */}
-           <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
-           <StatCard label="New" value={stats.new} colorClass="text-green-600" />
-           <StatCard label="Re-reg" value={stats.reReg} colorClass="text-orange-600" />
-           <StatCard label="Pending" value={stats.pending} colorClass="text-orange-500" />
-           <StatCard label="Approved" value={stats.approved} colorClass="text-emerald-600" />
-           
-           {/* Row 2 (Wrapping) */}
-           <StatCard label="Rejected" value={stats.rejected} colorClass="text-red-600" />
-           <StatCard label="Paid" value={stats.paid} colorClass="text-purple-600" />
-           <StatCard label="Admins" value={stats.admins} colorClass="text-indigo-600" />
-           <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 md:col-span-2">
-                <p className="text-2xl font-bold text-emerald-600">AED {stats.collected}</p>
-                <p className="text-xs text-slate-500 uppercase font-medium mt-1">Collected</p>
-           </div>
-      </div>
+      {currentUser.role !== Role.HOSPITAL_ADMIN && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+               <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
+               <StatCard label="New" value={stats.new} colorClass="text-green-600" />
+               <StatCard label="Re-reg" value={stats.reReg} colorClass="text-orange-600" />
+               <StatCard label="Pending" value={stats.pending} colorClass="text-orange-500" />
+               <StatCard label="Approved" value={stats.approved} colorClass="text-emerald-600" />
+               <StatCard label="Rejected" value={stats.rejected} colorClass="text-red-600" />
+               <StatCard label="Paid" value={stats.paid} colorClass="text-purple-600" />
+               <StatCard label="Admins" value={stats.admins} colorClass="text-indigo-600" />
+               <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 md:col-span-2">
+                    <p className="text-2xl font-bold text-emerald-600">AED {stats.collected}</p>
+                    <p className="text-xs text-slate-500 uppercase font-medium mt-1">Collected</p>
+               </div>
+          </div>
+      )}
 
-      {/* --- TABS --- */}
       <div className="flex overflow-x-auto pb-2 gap-2 mt-2 no-scrollbar">
         {visibleTabs.map(tab => (
           <button 
@@ -717,9 +759,137 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         ))}
       </div>
 
-      {/* ... (Previous Tab Contents Omitted for Brevity - Keeping everything same until Card Mgmt) ... */}
+      {activeTab === 'Member Search' && (
+          <div className="space-y-6">
+              <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm">
+                   <div className="flex flex-col md:flex-row gap-6 items-center">
+                        <div className="w-full md:w-1/2 space-y-4">
+                             <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                 <QrCode className="w-5 h-5 text-blue-600" /> Member Verification
+                             </h3>
+                             <p className="text-sm text-slate-500">Scan or manually enter membership number for quick eligibility check.</p>
+                             <div className="flex gap-2">
+                                  <input 
+                                    className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold text-lg"
+                                    placeholder="Membership No (e.g. 20250001)"
+                                    value={scanIdInput}
+                                    onChange={e => setScanIdInput(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleManualScan()}
+                                  />
+                                  <button 
+                                    onClick={handleManualScan}
+                                    className="px-6 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all"
+                                  >
+                                      Verify
+                                  </button>
+                             </div>
+                        </div>
+                        <div className="w-full md:w-1/2">
+                            {scannedUser ? (
+                                <div className={`p-6 rounded-2xl border-2 flex items-center gap-6 ${scannedUser.status === UserStatus.APPROVED && scannedUser.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                                     <div className="w-24 h-24 rounded-full bg-white border shadow flex items-center justify-center overflow-hidden flex-shrink-0">
+                                          {scannedUser.photoUrl ? (
+                                              <img src={scannedUser.photoUrl} className="w-full h-full object-cover" />
+                                          ) : (
+                                              <UserCheck className="w-12 h-12 text-slate-300" />
+                                          )}
+                                     </div>
+                                     <div className="flex-1">
+                                          <div className="flex justify-between items-start">
+                                               <div>
+                                                   <h4 className="font-bold text-xl text-slate-900">{scannedUser.fullName}</h4>
+                                                   <p className="text-sm font-mono text-slate-500">{scannedUser.membershipNo}</p>
+                                               </div>
+                                               <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${scannedUser.status === UserStatus.APPROVED && scannedUser.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`}>
+                                                   {scannedUser.paymentStatus === PaymentStatus.PAID ? 'VALID MEMBER' : 'PENDING FEES'}
+                                               </span>
+                                          </div>
+                                          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                              <p><span className="text-slate-400 font-bold">Mandalam:</span> {scannedUser.mandalam}</p>
+                                              <p><span className="text-slate-400 font-bold">Emirate:</span> {scannedUser.emirate}</p>
+                                              <p><span className="text-slate-400 font-bold">Joined:</span> {scannedUser.registrationYear}</p>
+                                              <p><span className="text-slate-400 font-bold">Mobile:</span> {scannedUser.mobile}</p>
+                                          </div>
+                                          <button onClick={() => setViewingUser(scannedUser)} className="mt-4 text-blue-600 font-bold text-xs hover:underline flex items-center gap-1">
+                                              <Eye className="w-3 h-3" /> Full Profile Details
+                                          </button>
+                                     </div>
+                                </div>
+                            ) : (
+                                <div className="h-full min-h-[140px] border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
+                                     <ShieldAlert className="w-8 h-8 opacity-20 mb-2" />
+                                     <p className="text-sm italic">Scan card or enter ID above</p>
+                                </div>
+                            )}
+                        </div>
+                   </div>
+              </div>
 
-      {/* 1. USER APPROVALS */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                   <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                       <h3 className="font-bold text-slate-700">Member Search & Sector Filters</h3>
+                       <div className="flex gap-2 w-full md:w-auto">
+                            <select 
+                                className="p-2 border rounded-lg text-sm bg-white outline-none focus:ring-1 focus:ring-primary min-w-[150px]"
+                                value={sectorFilter}
+                                onChange={e => setSectorFilter(e.target.value)}
+                            >
+                                <option value="ALL">All Sectors (Mandalam)</option>
+                                {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            <div className="relative flex-1">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                                <input 
+                                        className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-primary w-full md:w-64" 
+                                        placeholder="Name, Mob, or EID..." 
+                                        value={searchTerm} 
+                                        onChange={e=>setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                       </div>
+                   </div>
+                   <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[10px] text-slate-500 font-bold tracking-wider">
+                                <tr>
+                                    <th className="px-6 py-4">Reg No</th>
+                                    <th className="px-6 py-4">Name</th>
+                                    <th className="px-6 py-4">Mandalam (Sector)</th>
+                                    <th className="px-6 py-4">Eligibility Status</th>
+                                    <th className="px-6 py-4 text-right">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filteredList.map(u => (
+                                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 font-mono font-bold text-slate-700">{u.membershipNo}</td>
+                                        <td className="px-6 py-4 font-bold text-slate-900">{u.fullName}</td>
+                                        <td className="px-6 py-4 text-slate-600">{u.mandalam}</td>
+                                        <td className="px-6 py-4">
+                                            {u.paymentStatus === PaymentStatus.PAID ? (
+                                                <span className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
+                                                    <CheckCircle2 className="w-3.5 h-3.5" /> ELIGIBLE
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center gap-1.5 text-amber-500 font-bold text-xs">
+                                                    <AlertCircle className="w-3.5 h-3.5" /> INELIGIBLE
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button onClick={() => setViewingUser(u)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                                                <Eye className="w-5 h-5"/>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                   </div>
+              </div>
+          </div>
+      )}
+
       {activeTab === 'User Approvals' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
              <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -752,91 +922,43 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
-      {/* 2. USERS OVERVIEW (MAIN LIST) */}
-      {activeTab === 'Users Overview' && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-             <div className="bg-slate-800 p-4 flex items-center justify-between">
-                 <div className="flex items-center gap-3 w-full max-w-md">
-                     <Search className="text-slate-400 w-5 h-5" />
-                     <input 
-                        className="bg-transparent border-none outline-none text-white w-full placeholder-slate-500 text-sm" 
-                        placeholder="Search..." 
-                        value={searchTerm} 
-                        onChange={e => setSearchTerm(e.target.value)}
-                     />
-                 </div>
-                 <button onClick={() => setShowAddUserModal(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors">
-                     <UserPlus className="w-4 h-4" /> Add User
-                 </button>
-             </div>
-             <div className="overflow-x-auto">
-                 <table className="w-full text-left text-sm">
-                     <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500 font-bold">
-                         <tr>
-                             <th className="px-6 py-4">Reg No</th>
-                             <th className="px-6 py-4">Name</th>
-                             <th className="px-6 py-4">Mobile</th>
-                             <th className="px-6 py-4">Mandalam</th>
-                             <th className="px-6 py-4">Status</th>
-                             <th className="px-6 py-4 text-right">Actions</th>
-                         </tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-50">
-                         {filteredList.map(u => (
-                             <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                                 <td className="px-6 py-4 font-mono font-bold text-slate-700">{u.membershipNo}</td>
-                                 <td className="px-6 py-4 font-bold text-slate-900">{u.fullName}</td>
-                                 <td className="px-6 py-4 text-slate-600">{u.mobile}</td>
-                                 <td className="px-6 py-4 text-slate-600">{u.mandalam}</td>
-                                 <td className="px-6 py-4">
-                                     <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${u.status === UserStatus.APPROVED ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                                         {u.status}
-                                     </span>
-                                 </td>
-                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                     <button onClick={() => setViewingUser(u)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Eye className="w-5 h-5"/></button>
-                                     <button onClick={() => { setEditUserForm(u); setShowEditUserModal(true); }} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"><Edit className="w-5 h-5"/></button>
-                                 </td>
-                             </tr>
-                         ))}
-                         {filteredList.length === 0 && (
-                             <tr>
-                                 <td colSpan={6} className="px-6 py-8 text-center text-slate-400 italic">No users found.</td>
-                             </tr>
-                         )}
-                     </tbody>
-                 </table>
-             </div>
-        </div>
-      )}
-
-      {/* 4. PAYMENT MGMT */}
       {activeTab === 'Payment Mgmt' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-               <div className="p-4 bg-slate-50 border-b flex justify-between">
-                   <h3 className="font-bold">Payment Management</h3>
-                   <input className="px-3 py-1 rounded border text-sm" placeholder="Search..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+               <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
+                   <h3 className="font-bold text-slate-700">Payment Management</h3>
+                   <div className="flex gap-2">
+                       <button 
+                         onClick={handleRemindUnpaid}
+                         className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-100 border border-indigo-100 transition-colors"
+                       >
+                           <BellRing className="w-3 h-3" /> Remind All Unpaid
+                       </button>
+                       <input className="px-3 py-1.5 rounded-lg border text-sm outline-none focus:ring-1 focus:ring-primary" placeholder="Search user..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+                   </div>
                </div>
                <table className="w-full text-left text-sm">
-                   <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                   <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
                        <tr><th className="px-6 py-3">User</th><th className="px-6 py-3">Status</th><th className="px-6 py-3 text-right">Action</th></tr>
                    </thead>
                    <tbody>
                        {filteredList.filter(u => u.paymentStatus !== PaymentStatus.PAID).map(u => (
-                           <tr key={u.id} className="border-b">
+                           <tr key={u.id} className="border-b hover:bg-slate-50 last:border-0">
                                <td className="px-6 py-4">
-                                   <p className="font-bold">{u.fullName}</p>
+                                   <p className="font-bold text-slate-900">{u.fullName}</p>
                                    <p className="text-xs text-slate-500">{u.membershipNo}</p>
                                </td>
                                <td className="px-6 py-4">
                                    <span className={`px-2 py-1 rounded text-xs font-bold ${u.paymentStatus==='PENDING'?'bg-orange-100 text-orange-700':'bg-red-50 text-red-500'}`}>{u.paymentStatus}</span>
                                </td>
                                <td className="px-6 py-4 text-right">
-                                   <button onClick={() => setViewingUser(u)} className="mr-2 p-1 bg-slate-100 rounded"><Eye className="w-4 h-4"/></button>
-                                   <button onClick={() => handleApprovePayment(u.id)} className="px-3 py-1 bg-primary text-white text-xs rounded font-bold">Mark Paid</button>
+                                   <button onClick={() => setViewingUser(u)} className="mr-2 p-1.5 bg-slate-100 rounded hover:bg-slate-200"><Eye className="w-4 h-4 text-slate-500"/></button>
+                                   <button onClick={() => handleApprovePayment(u.id)} className="px-3 py-1.5 bg-primary text-white text-xs rounded font-bold hover:bg-primary-dark">Mark Paid</button>
                                </td>
                            </tr>
                        ))}
+                       {filteredList.filter(u => u.paymentStatus !== PaymentStatus.PAID).length === 0 && (
+                           <tr><td colSpan={3} className="p-8 text-center text-slate-400">All users in current view are paid.</td></tr>
+                       )}
                    </tbody>
                </table>
           </div>
@@ -994,23 +1116,56 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       {/* 9. ADMIN ASSIGN (RESTRICTED TO MASTER ADMIN) */}
       {activeTab === 'Admin Assign' && currentUser.role === Role.MASTER_ADMIN && (
           <div className="space-y-6">
+              <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+                  <div className="relative flex-1 mr-4">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary" placeholder="Search members to assign role..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+                  </div>
+                  <button 
+                    onClick={() => setShowAddHospitalModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg font-bold text-sm hover:bg-pink-700 shadow-sm transition-all"
+                  >
+                      <Building2 className="w-4 h-4" /> Create Hospital Account
+                  </button>
+              </div>
               <div className="bg-white p-4 rounded-xl border border-slate-200">
-                  <input className="w-full p-2 border rounded" placeholder="Search user to assign role..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
-                  <div className="mt-4 max-h-[400px] overflow-y-auto space-y-2">
-                      {filteredList.slice(0, 50).map(u => (
-                          <div key={u.id} className="flex flex-col sm:flex-row justify-between items-center p-3 border rounded hover:bg-slate-50 gap-2">
-                              <div><p className="font-bold text-sm">{u.fullName}</p><p className="text-xs text-slate-500">{u.role} • {u.membershipNo}</p></div>
-                              <div className="flex gap-2 flex-wrap justify-end">
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+                      {filteredList.slice(0, 100).map(u => (
+                          <div key={u.id} className="flex flex-col sm:flex-row justify-between items-center p-3 border rounded-xl hover:bg-slate-50 gap-2 transition-colors">
+                              <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.role !== Role.USER ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}>
+                                      {u.fullName.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-sm text-slate-900">{u.fullName}</p>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.role === Role.MASTER_ADMIN ? 'bg-purple-100 text-purple-700' : u.role === Role.HOSPITAL_ADMIN ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-500'}`}>
+                                            {u.role.replace('_', ' ')}
+                                        </span>
+                                        {u.hospitalName && <span className="text-[10px] text-slate-400 font-medium">({u.hospitalName})</span>}
+                                        <span className="text-[10px] text-slate-400 font-mono">{u.membershipNo}</span>
+                                    </div>
+                                  </div>
+                              </div>
+                              <div className="flex gap-2 flex-wrap justify-end items-center">
                                   {u.role === Role.USER && (
                                       <>
-                                          <button onClick={()=>handleAssignAdmin(u, Role.MASTER_ADMIN)} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded font-bold shadow-sm hover:bg-purple-700">Make All Access Admin</button>
-                                          <button onClick={()=>handleAssignAdmin(u, Role.MANDALAM_ADMIN)} className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded font-bold border border-blue-100 hover:bg-blue-100">Mandalam Admin</button>
-                                          <button onClick={()=>handleAssignAdmin(u, Role.CUSTOM_ADMIN)} className="text-xs bg-slate-50 text-slate-700 px-3 py-1.5 rounded font-bold border border-slate-200 hover:bg-slate-100">Custom Admin</button>
-                                          <button onClick={()=>handleAssignAdmin(u, Role.HOSPITAL_ADMIN)} className="text-xs bg-pink-50 text-pink-700 px-3 py-1.5 rounded font-bold border border-pink-100 hover:bg-pink-100">Hospital Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.MASTER_ADMIN)} className="text-[10px] bg-purple-600 text-white px-2 py-1.5 rounded font-bold hover:bg-purple-700">Master Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.MANDALAM_ADMIN)} className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1.5 rounded font-bold border border-blue-100 hover:bg-blue-100">Mandalam Admin</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.HOSPITAL_ADMIN)} className="text-[10px] bg-pink-50 text-pink-700 px-2 py-1.5 rounded font-bold border border-pink-100 hover:bg-pink-100">Hospital Staff</button>
                                       </>
                                   )}
                                   {u.role !== Role.USER && (
-                                      <button onClick={()=>handleAssignAdmin(u, Role.USER)} className="text-xs bg-red-50 text-red-700 px-3 py-1.5 rounded font-bold border border-red-100 hover:bg-red-100">Revoke Admin</button>
+                                      <button onClick={()=>handleAssignAdmin(u, Role.USER)} className="text-[10px] bg-red-50 text-red-700 px-2 py-1.5 rounded font-bold border border-red-100 hover:bg-red-100">Revoke Access</button>
+                                  )}
+                                  {u.role === Role.HOSPITAL_ADMIN && (
+                                      <button 
+                                          onClick={() => handleDeleteUserAccount(u.id, u.fullName)} 
+                                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-2"
+                                          title="Delete Hospital Account"
+                                      >
+                                          <Trash2 className="w-4 h-4" />
+                                      </button>
                                   )}
                               </div>
                           </div>
@@ -1601,6 +1756,45 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                 </div>
             </div>
         </div>
+      )}
+
+      {/* Hospital Account Creation Modal */}
+      {showAddHospitalModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white w-full max-w-md rounded-2xl p-8 shadow-2xl space-y-6">
+                  <div className="text-center border-b pb-4">
+                      <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <Building2 className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-900">Create Hospital Portal Account</h3>
+                      <p className="text-sm text-slate-500">Add staff accounts for hospital verification.</p>
+                  </div>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Staff Member Name</label>
+                          <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.fullName} onChange={e => setNewHospitalForm({...newHospitalForm, fullName: e.target.value})} placeholder="e.g. John Doe" />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hospital / Clinic Name</label>
+                          <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.hospitalName} onChange={e => setNewHospitalForm({...newHospitalForm, hospitalName: e.target.value})} placeholder="e.g. Aster Clinic Dubai" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username (Login)</label>
+                              <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.username} onChange={e => setNewHospitalForm({...newHospitalForm, username: e.target.value})} placeholder="hosp_01" />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Password</label>
+                              <input type="password" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.password} onChange={e => setNewHospitalForm({...newHospitalForm, password: e.target.value})} placeholder="••••••" />
+                          </div>
+                      </div>
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                      <button onClick={() => setShowAddHospitalModal(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">Cancel</button>
+                      <button onClick={handleAddHospitalSubmit} className="flex-1 py-3 bg-pink-600 text-white rounded-xl font-bold shadow-lg shadow-pink-600/20">Create Account</button>
+                  </div>
+              </div>
+          </div>
       )}
 
     </div>

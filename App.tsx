@@ -318,7 +318,7 @@ const App: React.FC = () => {
     if (viewMode === 'USER') {
         switch (currentView) {
             case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
-            case 'CARD': return <MembershipCard user={currentUser} />;
+            case 'CARD': return <MembershipCard user={currentUser} activeYear={activeYear} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
             case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />;
