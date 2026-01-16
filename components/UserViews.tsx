@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, BenefitRecord, Notification } from '../types';
-import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck } from 'lucide-react';
+import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck, Mail } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface BaseProps {
     user: User;
     isLoading?: boolean;
-    notifications?: Notification[]; // Added prop
+    notifications?: Notification[]; 
 }
 
 // --- User Benefits View ---
@@ -66,14 +66,22 @@ interface AccountSettingsProps extends BaseProps {
 export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdateUser }) => {
     const [newPassword, setNewPassword] = useState('');
     const [confirmNewPassword, setConfirmNewPassword] = useState('');
+    const [newEmail, setNewEmail] = useState(user.email || '');
 
     const handleChangePassword = () => {
         if (newPassword !== confirmNewPassword) return alert("Passwords do not match");
         if (newPassword.length < 6) return alert("Password too short");
         onUpdateUser(user.id, { password: newPassword });
-        alert("Password update initiated.");
+        alert("Password updated successfully.");
         setNewPassword('');
         setConfirmNewPassword('');
+    };
+
+    const handleUpdateEmail = () => {
+        if (!newEmail || !newEmail.includes('@')) return alert("Invalid email address");
+        if (newEmail === user.email) return;
+        onUpdateUser(user.id, { email: newEmail });
+        alert("Email updated successfully.");
     };
 
     return (
@@ -101,14 +109,36 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
                                 <p className="font-medium text-slate-900">{user.mobile}</p>
                             </div>
                             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                <p className="text-xs text-slate-400 font-bold uppercase mb-1">Email</p>
-                                <p className="font-medium text-slate-900">{user.email || 'Not set'}</p>
+                                <p className="text-xs text-slate-400 font-bold uppercase mb-1">Emirates ID</p>
+                                <p className="font-medium text-slate-900">{user.emiratesId}</p>
                             </div>
                         </div>
                     </div>
 
                     <div className="pt-8 border-t border-slate-100">
-                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Security</h3>
+                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                             <Mail className="w-4 h-4"/> Update Email
+                         </h3>
+                         <div className="max-w-md flex gap-2">
+                             <input 
+                                type="email" 
+                                className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
+                                value={newEmail}
+                                onChange={(e) => setNewEmail(e.target.value)}
+                            />
+                             <button 
+                                onClick={handleUpdateEmail}
+                                className="px-4 py-3 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors whitespace-nowrap"
+                             >
+                                 Save Email
+                             </button>
+                         </div>
+                    </div>
+
+                    <div className="pt-8 border-t border-slate-100">
+                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                             <Lock className="w-4 h-4"/> Security
+                         </h3>
                          <div className="max-w-md space-y-4">
                              <input 
                                 type="password" 

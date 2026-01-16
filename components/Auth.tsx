@@ -1,7 +1,6 @@
 
-
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { Mandalam, Emirate, Role, UserStatus, PaymentStatus, User, RegistrationQuestion, FieldType } from '../types';
 import { StorageService } from '../services/storageService';
 
@@ -13,6 +12,7 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [verificationStep, setVerificationStep] = useState<'FORM' | 'OTP'>('FORM');
   const [showPassword, setShowPassword] = useState(false);
   
   // Login State
@@ -24,6 +24,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [customData, setCustomData] = useState<Record<string, string>>({});
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
+  // OTP State
+  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
+  const [userOtpInput, setUserOtpInput] = useState('');
+  const [pendingUser, setPendingUser] = useState<Partial<User> | null>(null);
+
   useEffect(() => {
       if(isRegistering) {
           StorageService.getQuestions().then(qs => setQuestions(qs));
@@ -33,6 +38,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onLogin(loginIdentifier.trim(), loginPassword.trim());
+  };
+
+  const generateOTP = () => {
+      return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -50,7 +59,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
     
     const currentYear = new Date().getFullYear();
     newUser.registrationYear = currentYear;
-    newUser.membershipNo = await StorageService.generateNextMembershipNo(currentYear);
+    // Note: membershipNo is generated securely in StorageService.addUser now
     newUser.registrationDate = new Date().toLocaleDateString();
     newUser.id = `user-${Date.now()}`;
 
@@ -67,47 +76,58 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
         }
 
         if (q.systemMapping && q.systemMapping !== 'NONE') {
-            // Map to core user property
             (newUser as any)[q.systemMapping] = value;
-            
-            // Special handling for booleans if needed (e.g. dropdown Yes/No -> boolean)
             if (q.systemMapping.startsWith('is')) {
                  (newUser as any)[q.systemMapping] = value === 'Yes' || value === 'YES';
             }
         } else {
-            // Save to custom data
-            if (newUser.customData) {
-                newUser.customData[q.id] = value;
-            }
+            if (newUser.customData) newUser.customData[q.id] = value;
         }
     }
 
-    // Default fallbacks if not mapped
     if (!newUser.mandalam) newUser.mandalam = Mandalam.VATAKARA;
     if (!newUser.emirate) newUser.emirate = Emirate.DUBAI;
     if (!newUser.mobile) newUser.mobile = '0000000000';
     if (!newUser.emiratesId) newUser.emiratesId = `784${Date.now()}`;
     
-    // Ensure we have a password
     if (!newUser.password) {
         alert("Password field is missing in configuration. Please contact admin.");
         return;
     }
 
-    onRegister(newUser as User);
+    if (!newUser.email || !newUser.email.includes('@')) {
+        alert("A valid email address is required for verification.");
+        return;
+    }
+
+    // Step 1: Generate & Send OTP
+    const otp = generateOTP();
+    setGeneratedOtp(otp);
+    setPendingUser(newUser);
+    
+    // Send via Firestore Mail Extension (configured in StorageService)
+    await StorageService.sendOTP(newUser.email, otp);
+    
+    alert(`A verification code has been sent to ${newUser.email}. Please check your inbox (and spam).`);
+    setVerificationStep('OTP');
+  };
+
+  const verifyOtpAndRegister = () => {
+      if (userOtpInput === generatedOtp && pendingUser) {
+          onRegister(pendingUser as User);
+      } else {
+          alert("Incorrect OTP. Please try again.");
+      }
   };
 
   const handleCustomChange = (questionId: string, value: string) => {
       setCustomData(prev => ({ ...prev, [questionId]: value }));
       
-      // If this question controls others, clear their values if the parent value changes
       const childQs = questions.filter(q => q.parentQuestionId === questionId);
       if (childQs.length > 0) {
           setCustomData(prev => {
               const newState = {...prev};
-              childQs.forEach(child => {
-                   newState[child.id] = ''; 
-              });
+              childQs.forEach(child => { newState[child.id] = ''; });
               return newState;
           });
       }
@@ -116,7 +136,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, questionId: string) => {
       const file = e.target.files?.[0];
       if (file) {
-          if (file.size > 1024 * 1024) { // 1MB limit
+          if (file.size > 1024 * 1024) { 
               alert("File size exceeds 1MB");
               return;
           }
@@ -124,102 +144,85 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
           reader.onloadend = () => {
               const base64 = reader.result as string;
               setPhotoPreview(base64);
-              handleCustomChange(questionId, "File Uploaded"); // Just mark as uploaded in customData
+              handleCustomChange(questionId, "File Uploaded");
           };
           reader.readAsDataURL(file);
       }
   };
 
   const shouldShowQuestion = (q: RegistrationQuestion) => {
-      // If no parent, always show
       if (!q.parentQuestionId) return true;
-
       const parentValue = customData[q.parentQuestionId];
       if (!parentValue) return false;
-
-      // Check specific dependency condition (e.g. only show if parent is 'Yes')
       if (q.dependentOptions) {
-          // If the map has keys, it means we only show if parent value is one of those keys
           const allowedParentValues = Object.keys(q.dependentOptions);
           if (allowedParentValues.length > 0 && !allowedParentValues.includes(parentValue)) {
               return false;
           }
       }
-
       return true;
   };
 
   const renderField = (q: RegistrationQuestion) => {
       const commonClasses = "w-full px-4 py-2 border border-slate-300 rounded outline-none focus:border-primary focus:ring-1 focus:ring-primary";
       
-      if (q.type === FieldType.TEXT) {
-          return <input required={q.required} type="text" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
-      }
-      if (q.type === FieldType.PASSWORD) {
-          return <input required={q.required} type="password" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
-      }
-      if (q.type === FieldType.NUMBER) {
-          return <input required={q.required} type="number" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
-      }
-      if (q.type === FieldType.DATE) {
-          return <input required={q.required} type="date" className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
-      }
-      if (q.type === FieldType.FILE) {
-          return (
-            <div>
-                <input required={q.required} type="file" accept="image/*,application/pdf" className={commonClasses} onChange={e => handleFileUpload(e, q.id)} />
-                <p className="text-[10px] text-slate-500 mt-1">{q.placeholder}</p>
-            </div>
-          );
-      }
-      if (q.type === FieldType.TEXTAREA) {
-          return <textarea required={q.required} placeholder={q.placeholder || q.label} className={`${commonClasses} h-20 resize-none`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
-      }
-      if (q.type === FieldType.DROPDOWN) {
-          return (
-              <select required={q.required} className={`${commonClasses} bg-white`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}>
-                  <option value="">Select {q.label}...</option>
-                  {q.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-          );
-      }
+      if (q.type === FieldType.TEXT) return <input required={q.required} type="text" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      if (q.type === FieldType.PASSWORD) return <input required={q.required} type="password" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      if (q.type === FieldType.NUMBER) return <input required={q.required} type="number" placeholder={q.placeholder || q.label} className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      if (q.type === FieldType.DATE) return <input required={q.required} type="date" className={commonClasses} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      if (q.type === FieldType.FILE) return (<div><input required={q.required} type="file" accept="image/*,application/pdf" className={commonClasses} onChange={e => handleFileUpload(e, q.id)} /><p className="text-[10px] text-slate-500 mt-1">{q.placeholder}</p></div>);
+      if (q.type === FieldType.TEXTAREA) return <textarea required={q.required} placeholder={q.placeholder || q.label} className={`${commonClasses} h-20 resize-none`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)} />;
+      if (q.type === FieldType.DROPDOWN) return (<select required={q.required} className={`${commonClasses} bg-white`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}><option value="">Select {q.label}...</option>{q.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select>);
       if (q.type === FieldType.DEPENDENT_DROPDOWN) {
           const parentVal = customData[q.parentQuestionId || ''];
           const availableOptions = parentVal ? (q.dependentOptions?.[parentVal] || []) : [];
-          
-          return (
-              <select required={q.required} disabled={!parentVal} className={`${commonClasses} bg-white disabled:bg-slate-100`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}>
-                  <option value="">{parentVal ? `Select ${q.label}...` : `Select ${questions.find(p => p.id === q.parentQuestionId)?.label} first`}</option>
-                  {availableOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-          );
+          return (<select required={q.required} disabled={!parentVal} className={`${commonClasses} bg-white disabled:bg-slate-100`} value={customData[q.id] || ''} onChange={e => handleCustomChange(q.id, e.target.value)}><option value="">{parentVal ? `Select ${q.label}...` : `Select ${questions.find(p => p.id === q.parentQuestionId)?.label} first`}</option>{availableOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select>);
       }
       return null;
   };
 
   if (isRegistering) {
+      if (verificationStep === 'OTP') {
+          return (
+              <div className="min-h-screen flex items-center justify-center py-12 px-4 bg-slate-100">
+                  <div className="bg-white p-8 rounded-md shadow-lg w-full max-w-md text-center">
+                      <h2 className="text-2xl font-bold text-primary mb-2">Verify Email</h2>
+                      <p className="text-sm text-slate-500 mb-6">Enter the code sent to {pendingUser?.email}</p>
+                      
+                      <input 
+                          type="text" 
+                          placeholder="6-digit Code" 
+                          maxLength={6}
+                          className="w-full text-center text-2xl tracking-widest p-3 border rounded-lg mb-6 font-mono"
+                          value={userOtpInput}
+                          onChange={e => setUserOtpInput(e.target.value)}
+                      />
+                      
+                      <button onClick={verifyOtpAndRegister} disabled={isLoading} className="w-full py-3 bg-primary text-white font-bold rounded hover:bg-primary-dark transition-colors mb-4">
+                          {isLoading ? 'Verifying...' : 'Verify & Complete'}
+                      </button>
+                      
+                      <button onClick={() => setVerificationStep('FORM')} className="text-sm text-slate-500 underline">Back to Form</button>
+                  </div>
+              </div>
+          );
+      }
+
       return (
           <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-slate-100">
               <div className="bg-white p-8 rounded-md shadow-lg border-t-4 border-primary w-full max-w-3xl space-y-8">
-                  <div className="text-center border-b border-slate-100 pb-6">
+                  <div className="text-center border-b border-slate-100 pb-6 relative">
+                      <button onClick={() => setIsRegistering(false)} className="absolute left-0 top-0 p-2 text-slate-400 hover:text-slate-600"><ArrowLeft className="w-6 h-6"/></button>
                       <h2 className="text-3xl font-bold text-primary">Member Registration</h2>
                       <p className="text-slate-500 text-sm mt-1">Join the Vadakara NRI Forum Community</p>
                   </div>
 
                   <form onSubmit={handleRegisterSubmit} className="space-y-6">
-                      
-                      {questions.length === 0 && (
-                          <div className="text-center py-8 text-amber-600 bg-amber-50 rounded-xl">
-                              Admin has not configured registration questions yet. <br/>
-                              Please contact support.
-                          </div>
-                      )}
+                      {questions.length === 0 && <div className="text-center py-8 text-amber-600 bg-amber-50 rounded-xl">Loading form...</div>}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           {/* Dynamically Render Questions */}
                            {questions.map(q => {
                                if (!shouldShowQuestion(q)) return null;
-
                                return (
                                    <div key={q.id} className={q.type === FieldType.TEXTAREA ? "md:col-span-2" : ""}>
                                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">{q.label} {q.required && '*'}</label>
@@ -230,12 +233,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
                       </div>
 
                       <button type="submit" disabled={isLoading || questions.length === 0} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
-                          {isLoading ? 'Creating Account...' : 'Create Account'}
+                          {isLoading ? 'Processing...' : 'Continue to Verification'}
                       </button>
-
-                      <p className="text-center text-sm text-slate-600">
-                          Already have an account? <button type="button" onClick={() => setIsRegistering(false)} className="text-primary font-bold hover:underline ml-1">Sign in</button>
-                      </p>
                   </form>
               </div>
           </div>
@@ -284,7 +283,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-2">Imported users: Use Emirates ID as password.</p>
             </div>
           </div>
 
