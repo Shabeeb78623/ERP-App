@@ -309,7 +309,87 @@ export const StorageService = {
   },
   saveQuestion: async (q: RegistrationQuestion) => { await setDoc(doc(db, QUESTIONS_COLLECTION, q.id), q); },
   deleteQuestion: async (id: string) => { await deleteDoc(doc(db, QUESTIONS_COLLECTION, id)); },
-  seedDefaultQuestions: async () => { /* ... existing implementation ... */ },
+  
+  seedDefaultQuestions: async () => {
+      // 1. Delete existing
+      await deleteCollectionInBatches(QUESTIONS_COLLECTION);
+      
+      // 2. Define Defaults
+      const defaults: RegistrationQuestion[] = [
+          {
+              id: 'q_fullname', label: 'Full Name', type: FieldType.TEXT, required: true, order: 1, 
+              systemMapping: 'fullName', placeholder: 'Enter your full name as per Passport'
+          },
+          {
+              id: 'q_mobile', label: 'Mobile Number', type: FieldType.NUMBER, required: true, order: 2, 
+              systemMapping: 'mobile', placeholder: '0501234567'
+          },
+          {
+              id: 'q_whatsapp', label: 'WhatsApp Number', type: FieldType.NUMBER, required: true, order: 3, 
+              systemMapping: 'whatsapp', placeholder: '0501234567'
+          },
+          {
+              id: 'q_email', label: 'Email Address', type: FieldType.TEXT, required: true, order: 4, 
+              systemMapping: 'email', placeholder: 'you@example.com'
+          },
+          {
+              id: 'q_password', label: 'Create Password', type: FieldType.PASSWORD, required: true, order: 5, 
+              systemMapping: 'password', placeholder: 'Secure password for login'
+          },
+          {
+              id: 'q_eid', label: 'Emirates ID', type: FieldType.TEXT, required: true, order: 6, 
+              systemMapping: 'emiratesId', placeholder: '784-xxxx-xxxxxxx-x'
+          },
+          {
+              id: 'q_emirate', label: 'Emirate', type: FieldType.DROPDOWN, required: true, order: 7, 
+              systemMapping: 'emirate', options: EMIRATES
+          },
+          {
+              id: 'q_mandalam', label: 'Mandalam', type: FieldType.DROPDOWN, required: true, order: 8, 
+              systemMapping: 'mandalam', options: MANDALAMS
+          },
+          {
+              id: 'q_addr_uae', label: 'UAE Address', type: FieldType.TEXTAREA, required: true, order: 9, 
+              systemMapping: 'addressUAE'
+          },
+          {
+              id: 'q_addr_ind', label: 'India Address', type: FieldType.TEXTAREA, required: true, order: 10, 
+              systemMapping: 'addressIndia'
+          },
+           {
+              id: 'q_rec', label: 'Recommended By', type: FieldType.TEXT, required: false, order: 11, 
+              systemMapping: 'recommendedBy', placeholder: 'Name of existing member'
+          },
+          {
+              id: 'q_nominee', label: 'Nominee Name', type: FieldType.TEXT, required: true, order: 12, 
+              systemMapping: 'nominee'
+          },
+          {
+              id: 'q_relation', label: 'Relation to Nominee', type: FieldType.DROPDOWN, required: true, order: 13, 
+              systemMapping: 'relation', options: ['Father', 'Mother', 'Wife', 'Husband', 'Son', 'Daughter', 'Brother', 'Sister']
+          },
+          {
+              id: 'q_kmcc', label: 'Are you a KMCC Member?', type: FieldType.DROPDOWN, required: false, order: 14,
+              systemMapping: 'isKMCCMember', options: ['Yes', 'No']
+          },
+           {
+              id: 'q_kmcc_no', label: 'KMCC Membership No', type: FieldType.TEXT, required: false, order: 15,
+              systemMapping: 'kmccNo', parentQuestionId: 'q_kmcc', dependentOptions: { 'Yes': [] }
+          },
+          {
+              id: 'q_photo', label: 'Passport Photo', type: FieldType.FILE, required: false, order: 16,
+              systemMapping: 'NONE', placeholder: 'Upload clear photo'
+          }
+      ];
+
+      // 3. Add to Firestore
+      const batch = writeBatch(db);
+      defaults.forEach(q => {
+          const ref = doc(db, QUESTIONS_COLLECTION, q.id);
+          batch.set(ref, q);
+      });
+      await batch.commit();
+  },
 
   getBenefits: async () => {
       const s = await getDocs(collection(db, BENEFITS_COLLECTION));
