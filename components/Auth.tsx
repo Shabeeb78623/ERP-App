@@ -12,7 +12,6 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [isRegistering, setIsRegistering] = useState(false);
-  const [verificationStep, setVerificationStep] = useState<'FORM' | 'OTP'>('FORM');
   const [showPassword, setShowPassword] = useState(false);
   
   // Login State
@@ -24,11 +23,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const [customData, setCustomData] = useState<Record<string, string>>({});
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
-  // OTP State
-  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
-  const [userOtpInput, setUserOtpInput] = useState('');
-  const [pendingUser, setPendingUser] = useState<Partial<User> | null>(null);
-
   useEffect(() => {
       if(isRegistering) {
           StorageService.getQuestions().then(qs => setQuestions(qs));
@@ -38,10 +32,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onLogin(loginIdentifier.trim(), loginPassword.trim());
-  };
-
-  const generateOTP = () => {
-      return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -95,29 +85,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
         return;
     }
 
-    if (!newUser.email || !newUser.email.includes('@')) {
-        alert("A valid email address is required for verification.");
-        return;
-    }
-
-    // Step 1: Generate & Send OTP
-    const otp = generateOTP();
-    setGeneratedOtp(otp);
-    setPendingUser(newUser);
-    
-    // Send via Firestore Mail Extension (configured in StorageService)
-    await StorageService.sendOTP(newUser.email, otp);
-    
-    alert(`A verification code has been sent to ${newUser.email}. Please check your inbox (and spam).`);
-    setVerificationStep('OTP');
-  };
-
-  const verifyOtpAndRegister = () => {
-      if (userOtpInput === generatedOtp && pendingUser) {
-          onRegister(pendingUser as User);
-      } else {
-          alert("Incorrect OTP. Please try again.");
-      }
+    // Direct Register without OTP
+    onRegister(newUser as User);
   };
 
   const handleCustomChange = (questionId: string, value: string) => {
@@ -182,32 +151,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
   };
 
   if (isRegistering) {
-      if (verificationStep === 'OTP') {
-          return (
-              <div className="min-h-screen flex items-center justify-center py-12 px-4 bg-slate-100">
-                  <div className="bg-white p-8 rounded-md shadow-lg w-full max-w-md text-center">
-                      <h2 className="text-2xl font-bold text-primary mb-2">Verify Email</h2>
-                      <p className="text-sm text-slate-500 mb-6">Enter the code sent to {pendingUser?.email}</p>
-                      
-                      <input 
-                          type="text" 
-                          placeholder="6-digit Code" 
-                          maxLength={6}
-                          className="w-full text-center text-2xl tracking-widest p-3 border rounded-lg mb-6 font-mono"
-                          value={userOtpInput}
-                          onChange={e => setUserOtpInput(e.target.value)}
-                      />
-                      
-                      <button onClick={verifyOtpAndRegister} disabled={isLoading} className="w-full py-3 bg-primary text-white font-bold rounded hover:bg-primary-dark transition-colors mb-4">
-                          {isLoading ? 'Verifying...' : 'Verify & Complete'}
-                      </button>
-                      
-                      <button onClick={() => setVerificationStep('FORM')} className="text-sm text-slate-500 underline">Back to Form</button>
-                  </div>
-              </div>
-          );
-      }
-
       return (
           <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-slate-100">
               <div className="bg-white p-8 rounded-md shadow-lg border-t-4 border-primary w-full max-w-3xl space-y-8">
@@ -233,7 +176,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
                       </div>
 
                       <button type="submit" disabled={isLoading || questions.length === 0} className="w-full py-3 bg-accent text-white font-bold rounded hover:bg-accent-hover transition-colors shadow-sm disabled:opacity-50">
-                          {isLoading ? 'Processing...' : 'Continue to Verification'}
+                          {isLoading ? 'Processing...' : 'Register'}
                       </button>
                   </form>
               </div>
@@ -241,6 +184,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onRegister, isLoading }) => {
       );
   }
 
+  // ... Login UI ...
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4 relative overflow-hidden">
       <div className="absolute top-0 left-0 w-full h-1/2 bg-primary z-0"></div>

@@ -242,28 +242,10 @@ export const StorageService = {
   },
 
   sendOTP: async (toEmail: string, otp: string): Promise<void> => {
-      try {
-          // Uses Firestore "Trigger Email" Extension
-          await addDoc(collection(db, MAIL_COLLECTION), {
-              to: toEmail,
-              message: {
-                  subject: "Verify your email - Vadakara NRI Forum",
-                  html: `
-                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                        <h2>Email Verification</h2>
-                        <p>Welcome to Vadakara NRI Forum.</p>
-                        <p>Your One-Time Password (OTP) for registration is:</p>
-                        <h1 style="color: #004e92; letter-spacing: 5px;">${otp}</h1>
-                        <p>This code expires in 10 minutes.</p>
-                    </div>
-                  `
-              }
-          });
-      } catch(e) {
-          console.error("Failed to send OTP via extension", e);
-          // Fallback log for development
-          console.log(`[DEV OTP] for ${toEmail}: ${otp}`);
-      }
+      // MOCK SERVICE: No 3rd party API used.
+      // This function simply logs to console. The Frontend UI will mock the email reception via alert().
+      console.log(`[SIMULATED EMAIL SERVICE] Sending OTP ${otp} to ${toEmail}`);
+      return Promise.resolve();
   },
 
   // --- PAYMENT RESET ---
