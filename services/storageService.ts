@@ -1,3 +1,4 @@
+
 import { db } from './firebase';
 import { 
     collection, 
@@ -255,8 +256,9 @@ export const StorageService = {
     const snapshot = await getDocs(collection(db, USERS_COLLECTION));
     const users = snapshot.docs.map(doc => doc.data() as User);
     
-    // Filter out Master Admin AND Hospital Admins, reset everyone else
-    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_ADMIN && u.id);
+    // Filter out Master Admin, reset everyone else
+    // Logic: Reset even if paid last year. Set status to RENEWAL_PENDING for active users.
+    const eligibleUsers = users.filter(u => u.role !== Role.MASTER_ADMIN && u.id);
     
     console.log(`Found ${eligibleUsers.length} users to reset.`);
     if (eligibleUsers.length === 0) return;
@@ -280,7 +282,8 @@ export const StorageService = {
                 };
 
                 // Only Approved members go into "Renewal Pending" mode
-                if (user.registrationYear < newYear && user.status === UserStatus.APPROVED) {
+                // Pending users stay Pending but Unpaid. Rejected stay Rejected.
+                if (user.status === UserStatus.APPROVED) {
                     updates.status = UserStatus.RENEWAL_PENDING;
                 }
 

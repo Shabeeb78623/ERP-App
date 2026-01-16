@@ -119,8 +119,8 @@ const App: React.FC = () => {
   // Determine current active year
   const activeYear = years.length > 0 ? years[0].year : new Date().getFullYear();
 
-  // Helper to check if a user is a regular member (excluding System/Hospital admins)
-  const isMember = (u: User) => u.role !== Role.MASTER_ADMIN && u.role !== Role.HOSPITAL_ADMIN;
+  // Helper to check if a user is a regular member (excluding System admins)
+  const isMember = (u: User) => u.role !== Role.MASTER_ADMIN;
 
   const stats: DashboardStats = {
       total: users.filter(isMember).length, 
@@ -131,7 +131,7 @@ const App: React.FC = () => {
       approved: users.filter(u => u.status === UserStatus.APPROVED && isMember(u)).length,
       rejected: users.filter(u => u.status === UserStatus.REJECTED && isMember(u)).length,
       paid: users.filter(u => u.paymentStatus === PaymentStatus.PAID && isMember(u)).length,
-      // Admins count includes Hospital Admins
+      // Admins count
       admins: users.filter(u => u.role !== Role.USER && u.role !== Role.MASTER_ADMIN).length,
       collected: users.filter(u => u.paymentStatus === PaymentStatus.PAID && isMember(u)).length * 25
   };

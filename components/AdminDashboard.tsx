@@ -41,7 +41,7 @@ interface AdminDashboardProps {
 
 const ALL_TABS = [
   'User Approvals', 'Users Overview', 'Payment Mgmt', 'Payment Subs', 
-  'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Member Search'
+  'Benefits', 'Notifications', 'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
 ];
 
 const ADMIN_PERMISSIONS = [
@@ -70,14 +70,10 @@ const SYSTEM_FIELD_MAPPING = [
 ];
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, years, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
-  const [activeTab, setActiveTab] = useState(currentUser.role === Role.HOSPITAL_ADMIN ? 'Member Search' : 'User Approvals');
+  const [activeTab, setActiveTab] = useState('User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
   const [sectorFilter, setSectorFilter] = useState<string>('ALL');
   
-  // Hospital Scanner State
-  const [scanIdInput, setScanIdInput] = useState('');
-  const [scannedUser, setScannedUser] = useState<User | null>(null);
-
   // Modal States
   const [isBenefitModalOpen, setIsBenefitModalOpen] = useState(false);
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
@@ -86,7 +82,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [viewingUser, setViewingUser] = useState<User | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [showAddHospitalModal, setShowAddHospitalModal] = useState(false);
   
   // Email Modal State
   const [showEmailReminderModal, setShowEmailReminderModal] = useState(false);
@@ -154,13 +149,6 @@ Admin Team`);
       emirate: Emirate.DUBAI
   });
 
-  const [newHospitalForm, setNewHospitalForm] = useState({
-      fullName: '',
-      hospitalName: '',
-      username: '',
-      password: ''
-  });
-
   // Admin Assignment
   const [selectedUserForAdmin, setSelectedUserForAdmin] = useState<User | null>(null);
   const [customPerms, setCustomPerms] = useState<string[]>([]);
@@ -180,13 +168,9 @@ Admin Team`);
 
   // Filter Tabs based on Role
   const visibleTabs = ALL_TABS.filter(tab => {
-      if (currentUser.role === Role.HOSPITAL_ADMIN) {
-          return ['Member Search', 'Benefits'].includes(tab);
-      }
       if (['Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt', 'Import Users'].includes(tab)) {
           return currentUser.role === Role.MASTER_ADMIN;
       }
-      if (tab === 'Member Search') return false;
       return true;
   });
 
@@ -245,8 +229,8 @@ Admin Team`);
   const getAuthorizedUsers = () => {
     const realUsers = users.filter(u => u.id !== 'admin-master');
     const isAssignTab = activeTab === 'Admin Assign';
-    const isHospitalTab = activeTab === 'Member Search';
-    const effectiveUsers = (isAssignTab || isHospitalTab)
+    // For Users Overview, show everyone. For Approvals, just users.
+    const effectiveUsers = (isAssignTab || activeTab === 'Users Overview')
         ? realUsers 
         : realUsers.filter(u => u.role === Role.USER);
 
@@ -257,7 +241,7 @@ Admin Team`);
             : [currentUser.mandalam];
         return effectiveUsers.filter(u => allowed.includes(u.mandalam));
     }
-    if (currentUser.role === Role.CUSTOM_ADMIN || currentUser.role === Role.HOSPITAL_ADMIN) {
+    if (currentUser.role === Role.CUSTOM_ADMIN) {
         if (currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0) {
              return effectiveUsers.filter(u => currentUser.assignedMandalams!.includes(u.mandalam));
         }
@@ -284,16 +268,6 @@ Admin Team`);
       (b.userName && b.userName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (b.regNo && b.regNo.toLowerCase().includes(searchTerm.toLowerCase()))
   ));
-
-  const handleManualScan = () => {
-      const user = users.find(u => u.membershipNo === scanIdInput.trim());
-      if (user) {
-          setScannedUser(user);
-      } else {
-          alert("Member not found with this ID.");
-          setScannedUser(null);
-      }
-  };
 
   const handleApproveUser = async (id: string) => {
       if(confirm("Are you sure you want to APPROVE this user?")) {
@@ -380,8 +354,10 @@ Admin Team`);
   };
 
   const handleSendEmails = async () => {
-      const emails = getUnpaidEmails();
-      if (emails.length === 0) return;
+      const unpaidUsersWithEmail = authorizedUsers
+          .filter(u => u.role === Role.USER && u.paymentStatus !== PaymentStatus.PAID && u.email && u.email.includes('@'));
+
+      if (unpaidUsersWithEmail.length === 0) return;
       
       const { serviceId, templateId, publicKey } = emailConfig;
       if (!serviceId || !templateId || !publicKey) {
@@ -390,7 +366,7 @@ Admin Team`);
           return;
       }
 
-      if(!confirm(`This will send ${emails.length} emails using your EmailJS free tier quota. Continue?`)) return;
+      if(!confirm(`This will send ${unpaidUsersWithEmail.length} emails using your EmailJS free tier quota. Continue?`)) return;
 
       setIsSendingEmail(true);
       setSendingProgress(0);
@@ -402,14 +378,17 @@ Admin Team`);
           let failCount = 0;
 
           // Sequential sending to avoid rate limiting on free tier
-          for (let i = 0; i < emails.length; i++) {
-              const email = emails[i];
+          for (let i = 0; i < unpaidUsersWithEmail.length; i++) {
+              const user = unpaidUsersWithEmail[i];
+              const email = user.email || '';
+              const name = user.fullName || 'Member';
+
               try {
                   await emailjs.send(serviceId, templateId, {
-                      to_email: email,
+                      to_email: email, // IMPORTANT: Ensure your EmailJS template uses {{to_email}} in the "To" field
+                      to_name: name,   // IMPORTANT: Ensure your EmailJS template uses {{to_name}} if you want to greet them
                       subject: emailReminderSubject,
                       message: emailReminderBody,
-                      // You can add more variables here that match your EmailJS template
                   });
                   successCount++;
               } catch (err) {
@@ -417,10 +396,10 @@ Admin Team`);
                   failCount++;
               }
               // Update progress
-              setSendingProgress(Math.round(((i + 1) / emails.length) * 100));
+              setSendingProgress(Math.round(((i + 1) / unpaidUsersWithEmail.length) * 100));
               
               // Small delay to be polite to the API
-              await new Promise(r => setTimeout(r, 500));
+              await new Promise(r => setTimeout(r, 600));
           }
 
           alert(`Process Complete.\nSent: ${successCount}\nFailed: ${failCount}`);
@@ -502,16 +481,6 @@ Admin Team`);
           setCustomPerms(user.permissions || []); 
           setCustomMandalams(user.assignedMandalams || []); 
           setShowCustomModal(true); 
-      } else if (role === Role.HOSPITAL_ADMIN) {
-          if(confirm(`Assign ${user.fullName} as Hospital Staff?`)) {
-              const hospitalName = prompt("Enter Hospital Name:") || "General Hospital";
-              await StorageService.updateUser(user.id, {
-                  role: Role.HOSPITAL_ADMIN,
-                  hospitalName,
-                  permissions: ['manage_benefits', 'view_users'] 
-              });
-              alert("Hospital Staff assigned.");
-          }
       } else {
           const isRevoke = role === Role.USER;
           const actionName = isRevoke ? "Revoke Admin Rights" : "Grant All Access Admin";
@@ -534,44 +503,6 @@ Admin Team`);
           } catch (e) {
               alert("Failed to delete account. Please try again.");
           }
-      }
-  };
-
-  // ... (Hospital modal creation, user import etc) ...
-
-  const handleAddHospitalSubmit = async () => {
-      const { fullName, hospitalName, username, password } = newHospitalForm;
-      if (!fullName || !hospitalName || !username || !password) {
-          alert("Please fill all fields.");
-          return;
-      }
-      try {
-          const newUser: User = {
-              id: `hosp-${Date.now()}`,
-              fullName,
-              hospitalName,
-              email: username,
-              password,
-              role: Role.HOSPITAL_ADMIN,
-              mobile: '000',
-              whatsapp: '000',
-              emiratesId: `H-${Date.now()}`,
-              mandalam: Mandalam.VATAKARA,
-              emirate: Emirate.DUBAI,
-              status: UserStatus.APPROVED,
-              paymentStatus: PaymentStatus.PAID,
-              registrationYear: new Date().getFullYear(),
-              photoUrl: '',
-              membershipNo: `HOSP-${Date.now().toString().slice(-4)}`,
-              registrationDate: new Date().toLocaleDateString(),
-              permissions: ['manage_benefits', 'view_users']
-          };
-          await StorageService.addUser(newUser);
-          alert("Hospital account created successfully.");
-          setShowAddHospitalModal(false);
-          setNewHospitalForm({ fullName: '', hospitalName: '', username: '', password: '' });
-      } catch (e: any) {
-          alert(e.message);
       }
   };
 
@@ -827,12 +758,41 @@ Admin Team`);
   const pendingPayments = filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING);
   const paymentHistory = filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID || (u.paymentStatus === PaymentStatus.UNPAID && u.paymentRemarks));
 
+  const handleDownloadCSV = () => {
+        const headers = ["Reg No", "Full Name", "Email", "Mobile", "WhatsApp", "Emirates ID", "Mandalam", "Emirate", "Status", "Payment Status", "Year"];
+        const csvContent = [
+            headers.join(","),
+            ...authorizedUsers.map(user => [
+                user.membershipNo,
+                `"${user.fullName}"`,
+                user.email || "",
+                `"${user.mobile}"`,
+                `"${user.whatsapp}"`,
+                `"${user.emiratesId}"`,
+                user.mandalam,
+                user.emirate,
+                user.status,
+                user.paymentStatus,
+                user.registrationYear
+            ].join(","))
+        ].join("\n");
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Members_Export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
-            {currentUser.role === Role.HOSPITAL_ADMIN && <p className="text-sm text-slate-500 font-medium">Access: {currentUser.hospitalName}</p>}
           </div>
           <div className="flex items-center gap-2">
                <span className="text-sm font-medium text-slate-500">Year:</span>
@@ -846,22 +806,20 @@ Admin Team`);
           </div>
       </div>
 
-      {currentUser.role !== Role.HOSPITAL_ADMIN && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-               <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
-               <StatCard label="New" value={stats.new} colorClass="text-green-600" />
-               <StatCard label="Re-reg" value={stats.reReg} colorClass="text-orange-600" />
-               <StatCard label="Pending" value={stats.pending} colorClass="text-orange-500" />
-               <StatCard label="Approved" value={stats.approved} colorClass="text-emerald-600" />
-               <StatCard label="Rejected" value={stats.rejected} colorClass="text-red-600" />
-               <StatCard label="Paid" value={stats.paid} colorClass="text-purple-600" />
-               <StatCard label="Admins" value={stats.admins} colorClass="text-indigo-600" />
-               <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 md:col-span-2">
-                    <p className="text-2xl font-bold text-emerald-600">AED {stats.collected}</p>
-                    <p className="text-xs text-slate-500 uppercase font-medium mt-1">Collected</p>
-               </div>
-          </div>
-      )}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <StatCard label="Total" value={stats.total} colorClass="text-blue-600" />
+            <StatCard label="New" value={stats.new} colorClass="text-green-600" />
+            <StatCard label="Re-reg" value={stats.reReg} colorClass="text-orange-600" />
+            <StatCard label="Pending" value={stats.pending} colorClass="text-orange-500" />
+            <StatCard label="Approved" value={stats.approved} colorClass="text-emerald-600" />
+            <StatCard label="Rejected" value={stats.rejected} colorClass="text-red-600" />
+            <StatCard label="Paid" value={stats.paid} colorClass="text-purple-600" />
+            <StatCard label="Admins" value={stats.admins} colorClass="text-indigo-600" />
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 md:col-span-2">
+                <p className="text-2xl font-bold text-emerald-600">AED {stats.collected}</p>
+                <p className="text-xs text-slate-500 uppercase font-medium mt-1">Collected</p>
+            </div>
+      </div>
 
       <div className="flex overflow-x-auto pb-2 gap-2 mt-2 no-scrollbar">
         {visibleTabs.map(tab => (
@@ -875,135 +833,70 @@ Admin Team`);
         ))}
       </div>
 
-      {activeTab === 'Member Search' && (
-          <div className="space-y-6">
-              <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm">
-                   <div className="flex flex-col md:flex-row gap-6 items-center">
-                        <div className="w-full md:w-1/2 space-y-4">
-                             <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                 <QrCode className="w-5 h-5 text-blue-600" /> Member Verification
-                             </h3>
-                             <p className="text-sm text-slate-500">Scan or manually enter membership number for quick eligibility check.</p>
-                             <div className="flex gap-2">
-                                  <input 
-                                    className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold text-lg"
-                                    placeholder="Membership No (e.g. 20250001)"
-                                    value={scanIdInput}
-                                    onChange={e => setScanIdInput(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleManualScan()}
-                                  />
-                                  <button 
-                                    onClick={handleManualScan}
-                                    className="px-6 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all"
-                                  >
-                                      Verify
-                                  </button>
-                             </div>
-                        </div>
-                        <div className="w-full md:w-1/2">
-                            {scannedUser ? (
-                                <div className={`p-6 rounded-2xl border-2 flex items-center gap-6 ${scannedUser.status === UserStatus.APPROVED && scannedUser.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-                                     <div className="w-24 h-24 rounded-full bg-white border shadow flex items-center justify-center overflow-hidden flex-shrink-0">
-                                          {scannedUser.photoUrl ? (
-                                              <img src={scannedUser.photoUrl} className="w-full h-full object-cover" />
-                                          ) : (
-                                              <UserCheck className="w-12 h-12 text-slate-300" />
-                                          )}
-                                     </div>
-                                     <div className="flex-1">
-                                          <div className="flex justify-between items-start">
-                                               <div>
-                                                   <h4 className="font-bold text-xl text-slate-900">{scannedUser.fullName}</h4>
-                                                   <p className="text-sm font-mono text-slate-500">{scannedUser.membershipNo}</p>
-                                               </div>
-                                               <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${scannedUser.status === UserStatus.APPROVED && scannedUser.paymentStatus === PaymentStatus.PAID ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`}>
-                                                   {scannedUser.paymentStatus === PaymentStatus.PAID ? 'VALID MEMBER' : 'PENDING FEES'}
-                                               </span>
-                                          </div>
-                                          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                                              <p><span className="text-slate-400 font-bold">Mandalam:</span> {scannedUser.mandalam}</p>
-                                              <p><span className="text-slate-400 font-bold">Emirate:</span> {scannedUser.emirate}</p>
-                                              <p><span className="text-slate-400 font-bold">Joined:</span> {scannedUser.registrationYear}</p>
-                                              <p><span className="text-slate-400 font-bold">Mobile:</span> {scannedUser.mobile}</p>
-                                          </div>
-                                          <button onClick={() => setViewingUser(scannedUser)} className="mt-4 text-blue-600 font-bold text-xs hover:underline flex items-center gap-1">
-                                              <Eye className="w-3 h-3" /> Full Profile Details
-                                          </button>
-                                     </div>
-                                </div>
-                            ) : (
-                                <div className="h-full min-h-[140px] border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
-                                     <ShieldAlert className="w-8 h-8 opacity-20 mb-2" />
-                                     <p className="text-sm italic">Scan card or enter ID above</p>
-                                </div>
-                            )}
-                        </div>
-                   </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                   <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-                       <h3 className="font-bold text-slate-700">Member Search & Sector Filters</h3>
-                       <div className="flex gap-2 w-full md:w-auto">
-                            <select 
-                                className="p-2 border rounded-lg text-sm bg-white outline-none focus:ring-1 focus:ring-primary min-w-[150px]"
-                                value={sectorFilter}
-                                onChange={e => setSectorFilter(e.target.value)}
-                            >
-                                <option value="ALL">All Sectors (Mandalam)</option>
-                                {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
-                            </select>
-                            <div className="relative flex-1">
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                                <input 
-                                        className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-primary w-full md:w-64" 
-                                        placeholder="Name, Mob, or EID..." 
-                                        value={searchTerm} 
-                                        onChange={e=>setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                       </div>
-                   </div>
-                   <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[10px] text-slate-500 font-bold tracking-wider">
-                                <tr>
-                                    <th className="px-6 py-4">Reg No</th>
-                                    <th className="px-6 py-4">Name</th>
-                                    <th className="px-6 py-4">Mandalam (Sector)</th>
-                                    <th className="px-6 py-4">Eligibility Status</th>
-                                    <th className="px-6 py-4 text-right">Details</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50">
-                                {filteredList.map(u => (
-                                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-6 py-4 font-mono font-bold text-slate-700">{u.membershipNo}</td>
-                                        <td className="px-6 py-4 font-bold text-slate-900">{u.fullName}</td>
-                                        <td className="px-6 py-4 text-slate-600">{u.mandalam}</td>
-                                        <td className="px-6 py-4">
-                                            {u.paymentStatus === PaymentStatus.PAID ? (
-                                                <span className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs">
-                                                    <CheckCircle2 className="w-3.5 h-3.5" /> ELIGIBLE
-                                                </span>
-                                            ) : (
-                                                <span className="flex items-center gap-1.5 text-amber-500 font-bold text-xs">
-                                                    <AlertCircle className="w-3.5 h-3.5" /> INELIGIBLE
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button onClick={() => setViewingUser(u)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
-                                                <Eye className="w-5 h-5"/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                   </div>
-              </div>
-          </div>
+      {activeTab === 'Users Overview' && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {/* Header with Search and Export */}
+            <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50">
+                <h3 className="font-bold text-slate-800">All Members Directory</h3>
+                <div className="flex gap-2 w-full md:w-auto">
+                    <button onClick={handleDownloadCSV} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700">
+                        <Download className="w-4 h-4" /> Export CSV
+                    </button>
+                    <div className="relative flex-1">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-primary w-full" placeholder="Search members..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
+                    </div>
+                </div>
+            </div>
+            {/* Table */}
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
+                        <tr>
+                            <th className="px-6 py-3">Reg No</th>
+                            <th className="px-6 py-3">Name</th>
+                            <th className="px-6 py-3">Contact</th>
+                            <th className="px-6 py-3">Status</th>
+                            <th className="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                        {filteredList.map(u => (
+                            <tr key={u.id} className="hover:bg-slate-50">
+                                <td className="px-6 py-4 font-mono text-slate-600">{u.membershipNo}</td>
+                                <td className="px-6 py-4">
+                                    <div className="font-bold text-slate-900">{u.fullName}</div>
+                                    <div className="text-xs text-slate-500">{u.mandalam}, {u.emirate}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <div className="text-slate-700">{u.mobile}</div>
+                                    <div className="text-xs text-slate-400">{u.email}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <div className="flex flex-col gap-1">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase w-fit ${u.status === UserStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
+                                            {u.status}
+                                        </span>
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase w-fit ${u.paymentStatus === PaymentStatus.PAID ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                                            {u.paymentStatus}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setViewingUser(u)} className="p-2 text-slate-500 hover:bg-slate-100 rounded" title="View Details"><Eye className="w-4 h-4"/></button>
+                                        <button onClick={() => { setEditUserForm(u); setShowEditUserModal(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit User"><Edit className="w-4 h-4"/></button>
+                                        {currentUser.role === Role.MASTER_ADMIN && (
+                                            <button onClick={() => handleDeleteUserAccount(u.id, u.fullName)} className="p-2 text-red-500 hover:bg-red-50 rounded" title="Delete User"><Trash2 className="w-4 h-4"/></button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
       )}
 
       {activeTab === 'User Approvals' && (
@@ -1243,12 +1136,6 @@ Admin Team`);
                       <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary" placeholder="Search members to assign role..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
                   </div>
-                  <button 
-                    onClick={() => setShowAddHospitalModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg font-bold text-sm hover:bg-pink-700 shadow-sm transition-all"
-                  >
-                      <Building2 className="w-4 h-4" /> Create Hospital Account
-                  </button>
               </div>
               <div className="bg-white p-4 rounded-xl border border-slate-200">
                   <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
@@ -1261,10 +1148,9 @@ Admin Team`);
                                   <div>
                                     <p className="font-bold text-sm text-slate-900">{u.fullName}</p>
                                     <div className="flex items-center gap-2">
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.role === Role.MASTER_ADMIN ? 'bg-purple-100 text-purple-700' : u.role === Role.HOSPITAL_ADMIN ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-500'}`}>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.role === Role.MASTER_ADMIN ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
                                             {u.role.replace('_', ' ')}
                                         </span>
-                                        {u.hospitalName && <span className="text-[10px] text-slate-400 font-medium">({u.hospitalName})</span>}
                                         <span className="text-[10px] text-slate-400 font-mono">{u.membershipNo}</span>
                                     </div>
                                   </div>
@@ -1274,20 +1160,11 @@ Admin Team`);
                                       <>
                                           <button onClick={()=>handleAssignAdmin(u, Role.MASTER_ADMIN)} className="text-[10px] bg-purple-600 text-white px-2 py-1.5 rounded font-bold hover:bg-purple-700">Master Admin</button>
                                           <button onClick={()=>handleAssignAdmin(u, Role.MANDALAM_ADMIN)} className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1.5 rounded font-bold border border-blue-100 hover:bg-blue-100">Mandalam Admin</button>
-                                          <button onClick={()=>handleAssignAdmin(u, Role.HOSPITAL_ADMIN)} className="text-[10px] bg-pink-50 text-pink-700 px-2 py-1.5 rounded font-bold border border-pink-100 hover:bg-pink-100">Hospital Staff</button>
+                                          <button onClick={()=>handleAssignAdmin(u, Role.CUSTOM_ADMIN)} className="text-[10px] bg-slate-50 text-slate-700 px-2 py-1.5 rounded font-bold border border-slate-100 hover:bg-slate-100">Custom Admin</button>
                                       </>
                                   )}
                                   {u.role !== Role.USER && (
                                       <button onClick={()=>handleAssignAdmin(u, Role.USER)} className="text-[10px] bg-red-50 text-red-700 px-2 py-1.5 rounded font-bold border border-red-100 hover:bg-red-100">Revoke Access</button>
-                                  )}
-                                  {u.role === Role.HOSPITAL_ADMIN && (
-                                      <button 
-                                          onClick={() => handleDeleteUserAccount(u.id, u.fullName)} 
-                                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-2"
-                                          title="Delete Hospital Account"
-                                      >
-                                          <Trash2 className="w-4 h-4" />
-                                      </button>
                                   )}
                               </div>
                           </div>
@@ -1875,45 +1752,6 @@ Admin Team`);
                   <div className="flex justify-end gap-2 mt-6">
                       <button onClick={() => setShowAddUserModal(false)} className="px-4 py-2 bg-slate-100 rounded">Cancel</button>
                       <button onClick={handleAddNewUser} className="px-4 py-2 bg-blue-600 text-white font-bold rounded hover:bg-blue-700">Add User</button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Hospital Account Creation Modal */}
-      {showAddHospitalModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-              <div className="bg-white w-full max-w-md rounded-2xl p-8 shadow-2xl space-y-6">
-                  <div className="text-center border-b pb-4">
-                      <div className="w-12 h-12 bg-pink-50 text-pink-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Building2 className="w-6 h-6" />
-                      </div>
-                      <h3 className="text-xl font-bold text-slate-900">Create Hospital Portal Account</h3>
-                      <p className="text-sm text-slate-500">Add staff accounts for hospital verification.</p>
-                  </div>
-                  <div className="space-y-4">
-                      <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Staff Member Name</label>
-                          <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.fullName} onChange={e => setNewHospitalForm({...newHospitalForm, fullName: e.target.value})} placeholder="e.g. John Doe" />
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Hospital / Clinic Name</label>
-                          <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.hospitalName} onChange={e => setNewHospitalForm({...newHospitalForm, hospitalName: e.target.value})} placeholder="e.g. Aster Clinic Dubai" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Username (Login)</label>
-                              <input className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.username} onChange={e => setNewHospitalForm({...newHospitalForm, username: e.target.value})} placeholder="hosp_01" />
-                          </div>
-                          <div>
-                              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Password</label>
-                              <input type="password" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-pink-500" value={newHospitalForm.password} onChange={e => setNewHospitalForm({...newHospitalForm, password: e.target.value})} placeholder="••••••" />
-                          </div>
-                      </div>
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                      <button onClick={() => setShowAddHospitalModal(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">Cancel</button>
-                      <button onClick={handleAddHospitalSubmit} className="flex-1 py-3 bg-pink-600 text-white rounded-xl font-bold shadow-lg shadow-pink-600/20">Create Account</button>
                   </div>
               </div>
           </div>
