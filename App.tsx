@@ -30,6 +30,8 @@ const App: React.FC = () => {
   const [completionForm, setCompletionForm] = useState({
       email: '',
       password: '',
+      mobile: '',
+      emiratesId: '',
       addressUAE: '',
       addressIndia: '',
       nominee: '',
@@ -87,6 +89,21 @@ const App: React.FC = () => {
                         setViewMode('USER');
                     }
                     setCurrentView('DASHBOARD');
+                    
+                    // Check if completion needed on restore
+                    if (user.isImported) {
+                        setCompletionForm({
+                            email: user.email || '',
+                            password: user.password || '',
+                            mobile: user.mobile || '',
+                            emiratesId: user.emiratesId || '',
+                            addressUAE: user.addressUAE || '',
+                            addressIndia: user.addressIndia || '',
+                            nominee: user.nominee || '',
+                            relation: user.relation || 'Father'
+                        });
+                        setIsProfileCompletionOpen(true);
+                    }
                 }
             }
             setIsLoading(false);
@@ -141,7 +158,6 @@ const App: React.FC = () => {
       
       // Hardcoded fallback for System Admin (Shabeeb)
       if (identifier === 'Shabeeb' && passwordInput === 'ShabeeB@2025') {
-        // Explicitly look for the 'admin-master' ID to avoid logging in as a promoted user
         const admin = users.find(u => u.id === 'admin-master');
         if (admin) {
           setCurrentUser(admin);
@@ -158,7 +174,6 @@ const App: React.FC = () => {
         setUsers(freshUsers);
         
         const cleanId = identifier.trim().toLowerCase();
-        // Check for admin by username first
         let user: User | undefined;
         if (identifier === 'Shabeeb') {
             user = freshUsers.find(u => u.id === 'admin-master');
@@ -171,7 +186,7 @@ const App: React.FC = () => {
         
         if (user && user.password === passwordInput) {
             setCurrentUser(user);
-            localStorage.setItem('vadakara_session_user_id', user.id); // Save session
+            localStorage.setItem('vadakara_session_user_id', user.id); 
             
             if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
                 setViewMode('ADMIN');
@@ -179,7 +194,18 @@ const App: React.FC = () => {
                 setViewMode('USER');
             }
 
+            // TRIGGER COMPLETION IF IMPORTED
             if (user.isImported) {
+                setCompletionForm({
+                    email: user.email || '',
+                    password: user.password || '',
+                    mobile: user.mobile || '',
+                    emiratesId: user.emiratesId || '',
+                    addressUAE: user.addressUAE || '',
+                    addressIndia: user.addressIndia || '',
+                    nominee: user.nominee || '',
+                    relation: user.relation || 'Father'
+                });
                 setIsProfileCompletionOpen(true);
             }
             setCurrentView('DASHBOARD');
@@ -216,6 +242,7 @@ const App: React.FC = () => {
       setCurrentUser(null);
       setCurrentView('AUTH');
       setViewMode('USER');
+      setIsProfileCompletionOpen(false);
   };
 
   const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
@@ -264,14 +291,17 @@ const App: React.FC = () => {
 
   const submitProfileCompletion = async () => {
       if (!currentUser) return;
-      if (!completionForm.email || !completionForm.password) {
-          alert("Email and Password are required.");
-          return;
-      }
+      
+      // Basic Validation
+      if (!completionForm.email || !completionForm.password) return alert("Email and Password are required.");
+      if (!completionForm.emiratesId) return alert("Emirates ID is required.");
+      if (!completionForm.mobile) return alert("Mobile Number is required.");
 
       await handleUpdateUser(currentUser.id, {
           email: completionForm.email,
           password: completionForm.password,
+          mobile: completionForm.mobile,
+          emiratesId: completionForm.emiratesId,
           addressUAE: completionForm.addressUAE,
           addressIndia: completionForm.addressIndia,
           nominee: completionForm.nominee,
@@ -280,7 +310,7 @@ const App: React.FC = () => {
       });
       
       setIsProfileCompletionOpen(false);
-      alert("Profile completed successfully. You can now use these credentials to login.");
+      alert("Profile completed successfully. You can now use your email and password to login.");
   };
 
   const toggleViewMode = () => {
@@ -293,12 +323,10 @@ const App: React.FC = () => {
 
   // --- RENDER CONTENT ---
   
-  // 1. Verification Mode
   if (verificationId) {
       return <VerificationView userId={verificationId} />;
   }
 
-  // 2. Loading State
   if (isLoading && !currentUser) { 
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -325,144 +353,75 @@ const App: React.FC = () => {
             default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
         }
     } else {
-        // Admin View
         switch (currentView) {
-            case 'DASHBOARD': return (
-              <AdminDashboard 
-                currentUser={currentUser}
-                users={users} 
-                benefits={benefits}
-                notifications={notifications}
-                years={years}
-                stats={stats} 
-                onUpdateUser={handleUpdateUser}
-                onAddBenefit={handleAddBenefit}
-                onDeleteBenefit={handleDeleteBenefit}
-                onDeleteNotification={handleDeleteNotification}
-                isLoading={isLoading}
-              />
-            );
+            case 'DASHBOARD': return <AdminDashboard currentUser={currentUser} users={users} benefits={benefits} notifications={notifications} years={years} stats={stats} onUpdateUser={handleUpdateUser} onAddBenefit={handleAddBenefit} onDeleteBenefit={handleDeleteBenefit} onDeleteNotification={handleDeleteNotification} isLoading={isLoading} />;
             case 'COMMUNICATIONS': return <Communications />;
-            default: return (
-              <AdminDashboard 
-                currentUser={currentUser}
-                users={users} 
-                benefits={benefits}
-                notifications={notifications}
-                years={years}
-                stats={stats} 
-                onUpdateUser={handleUpdateUser}
-                onAddBenefit={handleAddBenefit}
-                onDeleteBenefit={handleDeleteBenefit}
-                onDeleteNotification={handleDeleteNotification}
-                isLoading={isLoading}
-              />
-            );
+            default: return <AdminDashboard currentUser={currentUser} users={users} benefits={benefits} notifications={notifications} years={years} stats={stats} onUpdateUser={handleUpdateUser} onAddBenefit={handleAddBenefit} onDeleteBenefit={handleDeleteBenefit} onDeleteNotification={handleDeleteNotification} isLoading={isLoading} />;
         }
     }
   };
 
   return (
-    <Layout 
-      currentView={currentView} 
-      setCurrentView={setCurrentView}
-      currentUser={currentUser}
-      onLogout={handleLogout}
-      viewMode={viewMode}
-      toggleViewMode={toggleViewMode}
-    >
+    <Layout currentView={currentView} setCurrentView={setCurrentView} currentUser={currentUser} onLogout={handleLogout} viewMode={viewMode} toggleViewMode={toggleViewMode}>
       {renderContent()}
 
       {isLoading && currentUser && (
           <div className="fixed inset-0 z-[200] bg-white/50 backdrop-blur-sm flex items-center justify-center">
-               <div className="animate-spin text-primary text-3xl">
-                   <i className="fa-solid fa-spinner"></i>
-                </div>
+               <div className="animate-spin text-primary text-3xl"><i className="fa-solid fa-spinner"></i></div>
           </div>
       )}
 
+      {/* --- PROFILE COMPLETION MODAL --- */}
       {isProfileCompletionOpen && currentUser && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-8 space-y-6 max-h-[90vh] overflow-y-auto border border-slate-100">
                   <div className="text-center border-b border-slate-100 pb-4">
                       <h2 className="text-2xl font-bold text-slate-900">Complete Your Profile</h2>
-                      <p className="text-slate-500 text-sm">We need a few more details to secure your account.</p>
+                      <p className="text-slate-500 text-sm">Please provide missing details to activate your account.</p>
                   </div>
 
                   <div className="space-y-4">
+                      {/* Name Display (Read Only) */}
                       <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Email Address</label>
-                          <input 
-                            type="email" 
-                            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                            placeholder="your@email.com"
-                            value={completionForm.email}
-                            onChange={(e) => setCompletionForm({...completionForm, email: e.target.value})}
-                          />
+                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Full Name</label>
+                          <input type="text" disabled className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-500" value={currentUser.fullName} />
                       </div>
+
+                      {/* Required Fields if Missing */}
                       <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">New Password</label>
-                          <input 
-                            type="password" 
-                            className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                            value={completionForm.password}
-                            onChange={(e) => setCompletionForm({...completionForm, password: e.target.value})}
-                          />
+                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Email Address *</label>
+                          <input type="email" className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" placeholder="your@email.com" value={completionForm.email} onChange={(e) => setCompletionForm({...completionForm, email: e.target.value})} />
                       </div>
-                       <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">UAE Address</label>
-                          <textarea 
-                            className="w-full p-3 border border-slate-200 rounded-lg outline-none resize-none h-20 focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                            value={completionForm.addressUAE}
-                            onChange={(e) => setCompletionForm({...completionForm, addressUAE: e.target.value})}
-                          ></textarea>
+                      
+                      <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Mobile Number *</label>
+                          <input type="text" className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" value={completionForm.mobile} onChange={(e) => setCompletionForm({...completionForm, mobile: e.target.value})} />
                       </div>
-                       <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">India Address</label>
-                          <textarea 
-                            className="w-full p-3 border border-slate-200 rounded-lg outline-none resize-none h-20 focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                            value={completionForm.addressIndia}
-                            onChange={(e) => setCompletionForm({...completionForm, addressIndia: e.target.value})}
-                          ></textarea>
+
+                      <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Emirates ID *</label>
+                          <input type="text" className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" placeholder="784-..." value={completionForm.emiratesId} onChange={(e) => setCompletionForm({...completionForm, emiratesId: e.target.value})} />
                       </div>
+
+                      <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">New Password *</label>
+                          <input type="password" className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" placeholder="Create a secure password" value={completionForm.password} onChange={(e) => setCompletionForm({...completionForm, password: e.target.value})} />
+                      </div>
+                      
+                      <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">UAE Address</label><textarea className="w-full p-3 border border-slate-200 rounded-lg outline-none resize-none h-20 focus:border-primary" value={completionForm.addressUAE} onChange={(e) => setCompletionForm({...completionForm, addressUAE: e.target.value})}></textarea></div>
+                      <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">India Address</label><textarea className="w-full p-3 border border-slate-200 rounded-lg outline-none resize-none h-20 focus:border-primary" value={completionForm.addressIndia} onChange={(e) => setCompletionForm({...completionForm, addressIndia: e.target.value})}></textarea></div>
+                      
                       <div className="grid grid-cols-2 gap-4">
-                          <div>
-                             <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Nominee Name</label>
-                             <input 
-                                type="text" 
-                                className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                                value={completionForm.nominee}
-                                onChange={(e) => setCompletionForm({...completionForm, nominee: e.target.value})}
-                             />
-                          </div>
-                          <div>
-                             <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Relation</label>
-                             <select 
-                                className="w-full p-3 border border-slate-200 rounded-lg outline-none bg-white focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
-                                value={completionForm.relation}
-                                onChange={(e) => setCompletionForm({...completionForm, relation: e.target.value})}
-                             >
-                                 <option value="Father">Father</option>
-                                 <option value="Mother">Mother</option>
-                                 <option value="Wife">Wife</option>
-                                 <option value="Husband">Husband</option>
-                                 <option value="Son">Son</option>
-                             </select>
-                          </div>
+                          <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Nominee Name</label><input type="text" className="w-full p-3 border border-slate-200 rounded-lg outline-none focus:border-primary" value={completionForm.nominee} onChange={(e) => setCompletionForm({...completionForm, nominee: e.target.value})} /></div>
+                          <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Relation</label><select className="w-full p-3 border border-slate-200 rounded-lg outline-none bg-white" value={completionForm.relation} onChange={(e) => setCompletionForm({...completionForm, relation: e.target.value})}><option value="Father">Father</option><option value="Mother">Mother</option><option value="Wife">Wife</option><option value="Husband">Husband</option><option value="Son">Son</option></select></div>
                       </div>
                   </div>
 
-                  <button 
-                    onClick={submitProfileCompletion}
-                    className="w-full py-3 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all"
-                  >
-                      Save Profile
-                  </button>
+                  <button onClick={submitProfileCompletion} className="w-full py-3 bg-primary text-white font-bold rounded-lg hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all">Complete Registration</button>
               </div>
           </div>
       )}
     </Layout>
   );
 };
-
 export default App;
