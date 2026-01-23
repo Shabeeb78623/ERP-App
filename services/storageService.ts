@@ -146,14 +146,13 @@ export const StorageService = {
         await runTransaction(db, async (transaction) => {
             // 1. Check for duplicates
             const usersRef = collection(db, USERS_COLLECTION);
-            const snapshot = await getDocs(usersRef); 
+            const snapshot = await getDocs(usersRef); // Note: Reading all for validation is expensive at scale, but ok for this size.
             const users = snapshot.docs.map(d => d.data() as User);
 
-            // Only check for duplicates if the field is present/truthy
             if (user.email && users.find(u => u.email?.toLowerCase() === user.email?.toLowerCase())) {
                 throw new Error(`User with email ${user.email} already exists.`);
             }
-            if (user.emiratesId && users.find(u => u.emiratesId === user.emiratesId)) {
+            if (users.find(u => u.emiratesId === user.emiratesId)) {
                 throw new Error(`User with Emirates ID ${user.emiratesId} already exists.`);
             }
 
@@ -186,6 +185,7 @@ export const StorageService = {
 
   addUsers: async (newUsers: User[], onProgress?: (count: number) => void): Promise<User[]> => {
     // Bulk import doesn't use transaction per user for speed, but tries to determine start seq
+    // Warning: Race conditions possible if single user registers during bulk import
     const batchSize = 400;
     let processed = 0;
 
@@ -242,6 +242,8 @@ export const StorageService = {
   },
 
   sendOTP: async (toEmail: string, otp: string): Promise<void> => {
+      // MOCK SERVICE: No 3rd party API used.
+      // This function simply logs to console. The Frontend UI will mock the email reception via alert().
       console.log(`[SIMULATED EMAIL SERVICE] Sending OTP ${otp} to ${toEmail}`);
       return Promise.resolve();
   },
@@ -282,6 +284,7 @@ export const StorageService = {
   },
 
   // --- UTILS ---
+  // Deprecated in favor of transaction in addUser, kept for Import/Backup
   getNextSequence: async (year: number): Promise<number> => {
       const counterDoc = await getDoc(doc(db, COUNTERS_COLLECTION, `year_${year}`));
       if(counterDoc.exists()) {
@@ -290,6 +293,7 @@ export const StorageService = {
       return 1;
   },
 
+  // Deprecated in favor of transaction in addUser, kept for Import/Backup
   generateNextMembershipNo: async (year: number): Promise<string> => {
       const nextSeq = await StorageService.getNextSequence(year);
       return `${year}${nextSeq.toString().padStart(4, '0')}`;
