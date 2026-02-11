@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion } from '../types';
-import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, CalendarClock } from 'lucide-react';
+import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, CalendarClock, MessageSquare, Send } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
@@ -15,6 +15,9 @@ interface UserDashboardProps {
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading, activeYear }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
+  const [messageSubject, setMessageSubject] = useState('');
+  const [messageBody, setMessageBody] = useState('');
+  const [isSendingMsg, setIsSendingMsg] = useState(false);
 
   useEffect(() => {
       const loadData = async () => {
@@ -36,6 +39,34 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
       });
       alert("Payment details submitted successfully. Admin will verify shortly.");
       setPaymentRemarks('');
+  };
+
+  const handleSendMessage = async () => {
+      if(!messageSubject || !messageBody) {
+          alert("Please fill in subject and message.");
+          return;
+      }
+      setIsSendingMsg(true);
+      try {
+          await StorageService.sendMessage({
+              id: `msg-${Date.now()}`,
+              userId: user.id,
+              userName: user.fullName,
+              userRegNo: user.membershipNo || 'PENDING',
+              subject: messageSubject,
+              content: messageBody,
+              date: new Date().toLocaleDateString(),
+              status: 'NEW'
+          });
+          alert("Message sent to Admin successfully!");
+          setMessageSubject('');
+          setMessageBody('');
+      } catch (e) {
+          alert("Failed to send message.");
+          console.error(e);
+      } finally {
+          setIsSendingMsg(false);
+      }
   };
 
   // Function to map custom data ID to Label
@@ -166,6 +197,40 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                         )}
                     </div>
                 )}
+            </div>
+
+            {/* Contact Admin Section */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                        <MessageSquare className="w-6 h-6" />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-900">Contact Admin</h2>
+                        <p className="text-xs text-slate-500">Send a message to the support team.</p>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    <input 
+                        className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500"
+                        placeholder="Subject (e.g., Update Profile Request)"
+                        value={messageSubject}
+                        onChange={e => setMessageSubject(e.target.value)}
+                    />
+                    <textarea 
+                        className="w-full p-3 border border-slate-200 rounded-xl text-sm h-24 resize-none outline-none focus:border-indigo-500"
+                        placeholder="Type your message..."
+                        value={messageBody}
+                        onChange={e => setMessageBody(e.target.value)}
+                    />
+                    <button 
+                        onClick={handleSendMessage}
+                        disabled={isSendingMsg}
+                        className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-70"
+                    >
+                        {isSendingMsg ? 'Sending...' : <><Send className="w-4 h-4"/> Send Message</>}
+                    </button>
+                </div>
             </div>
         </div>
 

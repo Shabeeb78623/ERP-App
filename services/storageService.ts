@@ -15,13 +15,14 @@ import {
     runTransaction,
     serverTimestamp
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
+import { User, BenefitRecord, Notification, Message, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
+const MESSAGES_COLLECTION = 'messages';
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
 const SETTINGS_COLLECTION = 'settings';
@@ -157,6 +158,15 @@ export const StorageService = {
           const notifs = snapshot.docs.map(doc => doc.data() as Notification);
           notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(notifs);
+      });
+  },
+
+  subscribeToMessages: (callback: (messages: Message[]) => void) => {
+      const q = query(collection(db, MESSAGES_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const msgs = snapshot.docs.map(doc => doc.data() as Message);
+          msgs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          callback(msgs);
       });
   },
 
@@ -343,6 +353,11 @@ export const StorageService = {
   addNotification: async (n: Notification) => { await setDoc(doc(db, NOTIFICATIONS_COLLECTION, n.id), n); },
   deleteNotification: async (id: string) => { await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, id)); },
 
+  sendMessage: async (m: Message) => { await setDoc(doc(db, MESSAGES_COLLECTION, m.id), m); },
+  markMessageReplied: async (id: string, reply: string) => { 
+      await updateDoc(doc(db, MESSAGES_COLLECTION, id), { status: 'REPLIED', adminReply: reply }); 
+  },
+
   createNewYear: async (year: number) => {
       const batch = writeBatch(db);
       const s = await getDocs(collection(db, YEARS_COLLECTION));
@@ -361,7 +376,7 @@ export const StorageService = {
   },
 
   resetDatabase: async () => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, MAIL_COLLECTION, COUNTERS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, MESSAGES_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, MAIL_COLLECTION, COUNTERS_COLLECTION];
       for (const col of collections) await deleteCollectionInBatches(col);
       await setDoc(doc(db, USERS_COLLECTION, ADMIN_USER.id), ADMIN_USER);
   },

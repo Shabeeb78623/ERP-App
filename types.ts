@@ -139,6 +139,18 @@ export interface Notification {
   recipients?: string[]; 
 }
 
+export interface Message {
+  id: string;
+  userId: string;
+  userName: string;
+  userRegNo: string;
+  subject: string;
+  content: string;
+  date: string;
+  status: 'NEW' | 'REPLIED' | 'READ';
+  adminReply?: string;
+}
+
 export interface YearConfig {
     year: number;
     status: 'ACTIVE' | 'ARCHIVED';

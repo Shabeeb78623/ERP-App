@@ -10,7 +10,7 @@ import VerificationView from './components/VerificationView'; // Import Verifica
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
 import { initializeAuth } from './services/firebase';
-import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification, YearConfig } from './types';
+import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification, Message, YearConfig } from './types';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [benefits, setBenefits] = useState<BenefitRecord[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [years, setYears] = useState<YearConfig[]>([]);
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'USER'>('USER');
@@ -50,6 +51,7 @@ const App: React.FC = () => {
     let unsubscribeUsers: () => void;
     let unsubscribeBenefits: () => void;
     let unsubscribeNotifs: () => void;
+    let unsubscribeMessages: () => void;
     let unsubscribeYears: () => void;
 
     const init = async () => {
@@ -67,6 +69,10 @@ const App: React.FC = () => {
 
         unsubscribeNotifs = StorageService.subscribeToNotifications((liveNotifs) => {
             setNotifications(liveNotifs);
+        });
+
+        unsubscribeMessages = StorageService.subscribeToMessages((liveMessages) => {
+            setMessages(liveMessages);
         });
 
         unsubscribeYears = StorageService.subscribeToYears((liveYears) => {
@@ -102,6 +108,7 @@ const App: React.FC = () => {
         if (unsubscribeUsers) unsubscribeUsers();
         if (unsubscribeBenefits) unsubscribeBenefits();
         if (unsubscribeNotifs) unsubscribeNotifs();
+        if (unsubscribeMessages) unsubscribeMessages();
         if (unsubscribeYears) unsubscribeYears();
     };
   }, []);
@@ -333,6 +340,7 @@ const App: React.FC = () => {
                 users={users} 
                 benefits={benefits}
                 notifications={notifications}
+                messages={messages}
                 years={years}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
@@ -350,6 +358,7 @@ const App: React.FC = () => {
                 users={users} 
                 benefits={benefits}
                 notifications={notifications}
+                messages={messages}
                 years={years}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
