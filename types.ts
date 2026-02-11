@@ -111,6 +111,7 @@ export interface User {
   paymentRemarks?: string; // Stores user entered payment details
   approvedBy?: string; // Stores the name of the admin who approved
   approvedAt?: string; // Date of approval
+  source?: string;
 
   // Dynamic Data
   customData?: Record<string, any>;

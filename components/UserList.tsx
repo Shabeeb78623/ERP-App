@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Search, Download, MoreVertical } from 'lucide-react';
 import { User, UserStatus, PaymentStatus, Role } from '../types';
@@ -13,9 +14,14 @@ const UserList: React.FC<UserListProps> = ({ users }) => {
   const [filterMandalam, setFilterMandalam] = useState<string>('ALL');
 
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          (user.email && user.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                          user.membershipNo.toLowerCase().includes(searchTerm.toLowerCase());
+    // Ensure properties exist before calling toLowerCase() to prevent crashes
+    const name = user.fullName || '';
+    const email = user.email || '';
+    const memNo = user.membershipNo || '';
+    
+    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          memNo.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesMandalam = filterMandalam === 'ALL' || user.mandalam === filterMandalam;
     return matchesSearch && matchesMandalam;
