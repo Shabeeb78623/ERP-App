@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, CardConfig, CardField } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing, Mail, Copy, Send, Settings, CheckCircle } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing, Mail, Copy, Send, Settings, CheckCircle, Smartphone, RotateCcw } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import emailjs from '@emailjs/browser';
@@ -296,6 +296,14 @@ Admin Team`);
       }
   };
 
+  const handleRevokePayment = async (id: string) => {
+      if(confirm("Action: REVOKE PAYMENT\n\nThis will mark the user as UNPAID. They will lose access to benefits/ID card until paid again.\n\nContinue?")) {
+          await StorageService.updateUser(id, { 
+              paymentStatus: PaymentStatus.UNPAID
+          });
+      }
+  };
+
   const handleRejectPayment = async (id: string) => {
       if(confirm("Reject this payment submission? User will be notified.")) {
           await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID });
@@ -469,8 +477,6 @@ Admin Team`);
       }
   };
 
-  // ... (Other handlers like assign admin, import users, card vars, etc. remain the same) ...
-
   const handleAssignAdmin = async (user: User, role: Role) => {
       if (role === Role.MANDALAM_ADMIN) { 
           setSelectedUserForAdmin(user); 
@@ -641,11 +647,10 @@ Admin Team`);
   const saveEditUser = async () => {
       if (!editUserForm.id) return;
       
-      // Auto-reset payment status if admin changes status to RENEWAL_PENDING
       const updates = { ...editUserForm };
       if (updates.status === UserStatus.RENEWAL_PENDING) {
           updates.paymentStatus = PaymentStatus.UNPAID;
-          updates.paymentRemarks = ''; // Clear remarks too
+          updates.paymentRemarks = ''; 
       }
 
       await onUpdateUser(editUserForm.id, updates);
@@ -894,6 +899,18 @@ Admin Team`);
                                     <div className="flex justify-end gap-2">
                                         <button onClick={() => setViewingUser(u)} className="p-2 text-slate-500 hover:bg-slate-100 rounded" title="View Details"><Eye className="w-4 h-4"/></button>
                                         <button onClick={() => { setEditUserForm(u); setShowEditUserModal(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit User"><Edit className="w-4 h-4"/></button>
+                                        
+                                        {/* Revoke Payment Button for Paid Users */}
+                                        {u.paymentStatus === PaymentStatus.PAID && (
+                                            <button 
+                                                onClick={() => handleRevokePayment(u.id)} 
+                                                className="p-2 text-orange-600 hover:bg-orange-50 rounded" 
+                                                title="Revoke Payment"
+                                            >
+                                                <RotateCcw className="w-4 h-4"/>
+                                            </button>
+                                        )}
+
                                         {currentUser.role === Role.MASTER_ADMIN && (
                                             <button onClick={() => handleDeleteUserAccount(u.id, u.fullName)} className="p-2 text-red-500 hover:bg-red-50 rounded" title="Delete User"><Trash2 className="w-4 h-4"/></button>
                                         )}
@@ -1039,9 +1056,14 @@ Admin Team`);
                                    <p className="font-bold text-slate-900">{u.fullName}</p>
                                    <p className="text-xs text-slate-500">{u.paymentRemarks}</p>
                                </div>
-                               <div className="text-right">
+                               <div className="text-right flex flex-col items-end gap-1">
                                    {u.paymentStatus === PaymentStatus.PAID ? (
-                                       <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-bold text-xs">APPROVED</span>
+                                       <div className="flex items-center gap-2">
+                                            <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-700 font-bold text-xs">APPROVED</span>
+                                            <button onClick={() => handleRevokePayment(u.id)} className="text-orange-500 hover:text-orange-700" title="Revoke">
+                                                <RotateCcw className="w-3 h-3" />
+                                            </button>
+                                       </div>
                                    ) : (
                                        <span className="px-2 py-1 rounded bg-red-100 text-red-700 font-bold text-xs">REJECTED / UNPAID</span>
                                    )}
