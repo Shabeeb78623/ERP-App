@@ -339,6 +339,7 @@ const App: React.FC = () => {
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
                 onDeleteNotification={handleDeleteNotification}
+                onSwitchToUserView={toggleViewMode}
                 isLoading={isLoading}
               />
             );
@@ -355,6 +356,7 @@ const App: React.FC = () => {
                 onAddBenefit={handleAddBenefit}
                 onDeleteBenefit={handleDeleteBenefit}
                 onDeleteNotification={handleDeleteNotification}
+                onSwitchToUserView={toggleViewMode}
                 isLoading={isLoading}
               />
             );

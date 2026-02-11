@@ -36,6 +36,7 @@ interface AdminDashboardProps {
   onAddBenefit: (benefit: BenefitRecord) => void;
   onDeleteBenefit: (id: string) => void;
   onDeleteNotification: (id: string) => void;
+  onSwitchToUserView: () => void; // New prop to handle switching views
   isLoading: boolean;
 }
 
@@ -69,7 +70,7 @@ const SYSTEM_FIELD_MAPPING = [
     { value: 'recommendedBy', label: 'Recommended By' },
 ];
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, years, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, isLoading }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, years, stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, onSwitchToUserView, isLoading }) => {
   const [activeTab, setActiveTab] = useState('User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
   const [sectorFilter, setSectorFilter] = useState<string>('ALL');
@@ -457,7 +458,8 @@ Admin Team`);
               recipients = authorizedUsers.map(u => u.id);
               audienceLabel = 'My Members';
           }
-          await StorageService.addNotification({
+          
+          const newNotification: Notification = {
               id: `notif-${Date.now()}`,
               title: notifTitle,
               message: notifMessage,
@@ -465,12 +467,17 @@ Admin Team`);
               read: false,
               type: recipients ? 'INDIVIDUAL' : 'BROADCAST',
               targetAudience: audienceLabel,
-              recipients: recipients 
-          });
+          };
+
+          if (recipients) {
+              newNotification.recipients = recipients;
+          }
+
+          await StorageService.addNotification(newNotification);
           alert("Notification Sent!");
           setNotifTitle(''); setNotifMessage('');
-      } catch (e) {
-          alert("Error sending notification");
+      } catch (e: any) {
+          alert("Error sending notification: " + e.message);
           console.error(e);
       } finally { 
           setSendingNotif(false); 
@@ -801,8 +808,34 @@ Admin Team`);
         document.body.removeChild(link);
   };
 
+  // Check if current logged-in admin needs to pay
+  const isSystemAdmin = currentUser.id === 'admin-master';
+  const isMembershipPending = !isSystemAdmin && currentUser.paymentStatus !== PaymentStatus.PAID;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      
+      {/* --- SELF-PAYMENT BANNER FOR ADMINS --- */}
+      {isMembershipPending && (
+          <div className="bg-gradient-to-r from-red-50 to-white border-l-4 border-red-500 rounded-lg p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 animate-fade-in">
+              <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-full text-red-600">
+                      <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                      <h4 className="font-bold text-red-800 text-sm">Action Required: Membership Fee Pending</h4>
+                      <p className="text-xs text-red-600 mt-0.5">Your administrative account also requires membership renewal ({years[0]?.year || new Date().getFullYear()}).</p>
+                  </div>
+              </div>
+              <button 
+                  onClick={onSwitchToUserView}
+                  className="whitespace-nowrap px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-2"
+              >
+                  Pay Membership Fee <ArrowUp className="w-3 h-3 rotate-45" />
+              </button>
+          </div>
+      )}
+
       <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
