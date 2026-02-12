@@ -109,6 +109,7 @@ export interface User {
   password?: string; 
   isImported?: boolean; // Flag to trigger profile completion
   paymentRemarks?: string; // Stores user entered payment details
+  paymentProofUrl?: string; // Stores Base64 of payment proof image
   approvedBy?: string; // Stores the name of the admin who approved
   approvedAt?: string; // Date of approval
   source?: string;
@@ -149,6 +150,24 @@ export interface Message {
   date: string;
   status: 'NEW' | 'REPLIED' | 'READ';
   adminReply?: string;
+}
+
+export interface Sponsor {
+  id: string;
+  name: string;
+  logoUrl: string; // Base64
+  website?: string;
+}
+
+export interface NewsEvent {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  type: 'NEWS' | 'EVENT';
+  imageUrl?: string; // Base64
+  location?: string; // For events
+  link?: string; // Optional external link
 }
 
 export interface YearConfig {

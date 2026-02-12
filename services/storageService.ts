@@ -15,7 +15,7 @@ import {
     runTransaction,
     serverTimestamp
 } from 'firebase/firestore';
-import { User, BenefitRecord, Notification, Message, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig } from '../types';
+import { User, BenefitRecord, Notification, Message, YearConfig, Role, Mandalam, Emirate, UserStatus, PaymentStatus, RegistrationQuestion, FieldType, CardConfig, Sponsor, NewsEvent } from '../types';
 import { MANDALAMS, EMIRATES } from '../constants';
 
 // Collection References
@@ -28,6 +28,8 @@ const QUESTIONS_COLLECTION = 'questions';
 const SETTINGS_COLLECTION = 'settings';
 const MAIL_COLLECTION = 'mail';
 const COUNTERS_COLLECTION = 'counters';
+const SPONSORS_COLLECTION = 'sponsors';
+const NEWS_COLLECTION = 'news_events';
 
 // Master Admin Fallback
 const ADMIN_USER: User = {
@@ -97,7 +99,8 @@ const normalizeUser = (doc: any): User => {
         role: (Object.values(Role).includes(data.role) ? data.role : Role.USER) as Role,
         
         registrationYear: Number(data.registrationYear) || new Date().getFullYear(),
-        photoUrl: safeStr(data.photoUrl),
+        // Check multiple fields for photo to support different app versions
+        photoUrl: safeStr(data.photoUrl) || safeStr(data.photo) || safeStr(data.image) || safeStr(data.profilePic),
         membershipNo: safeStr(data.membershipNo),
         registrationDate: safeStr(data.registrationDate) || new Date().toLocaleDateString(),
         
@@ -115,6 +118,7 @@ const normalizeUser = (doc: any): User => {
         password: safeStr(data.password),
         isImported: !!data.isImported,
         paymentRemarks: safeStr(data.paymentRemarks),
+        paymentProofUrl: safeStr(data.paymentProofUrl) || safeStr(data.paymentProof),
         approvedBy: safeStr(data.approvedBy),
         approvedAt: safeStr(data.approvedAt),
         
@@ -123,6 +127,23 @@ const normalizeUser = (doc: any): User => {
         
         // Ensure customData is an object
         customData: typeof data.customData === 'object' && data.customData !== null ? data.customData : {}
+    };
+};
+
+const normalizeNews = (doc: any): NewsEvent => {
+    const data = doc.data();
+    const safeStr = (val: any) => val ? String(val) : '';
+    
+    return {
+        id: doc.id,
+        title: safeStr(data.title),
+        description: safeStr(data.description),
+        date: safeStr(data.date),
+        type: (data.type === 'EVENT' || data.type === 'NEWS') ? data.type : 'NEWS',
+        // Check multiple variations for image field
+        imageUrl: safeStr(data.imageUrl) || safeStr(data.image) || safeStr(data.img), 
+        location: safeStr(data.location),
+        link: safeStr(data.link)
     };
 };
 
@@ -170,6 +191,25 @@ export const StorageService = {
       });
   },
 
+  subscribeToSponsors: (callback: (sponsors: Sponsor[]) => void) => {
+      const q = query(collection(db, SPONSORS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          const items = snapshot.docs.map(doc => doc.data() as Sponsor);
+          callback(items);
+      });
+  },
+
+  subscribeToNews: (callback: (news: NewsEvent[]) => void) => {
+      const q = query(collection(db, NEWS_COLLECTION));
+      return onSnapshot(q, (snapshot) => {
+          // Use normalizeNews to handle different field names
+          const items = snapshot.docs.map(doc => normalizeNews(doc));
+          // Sort by date descending
+          items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          callback(items);
+      });
+  },
+
   subscribeToYears: (callback: (years: YearConfig[]) => void) => {
       const q = query(collection(db, YEARS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
@@ -207,8 +247,6 @@ export const StorageService = {
     try {
         await runTransaction(db, async (transaction) => {
             const usersRef = collection(db, USERS_COLLECTION);
-            // Reading all users in a transaction is not scalable for huge datasets,
-            // but necessary here for unique checks without cloud functions.
             const snapshot = await getDocs(usersRef); 
             const users = snapshot.docs.map(d => d.data() as User);
 
@@ -277,7 +315,6 @@ export const StorageService = {
             const userSnap = await transaction.get(userRef);
             if (userSnap.exists()) {
                 const userData = userSnap.data() as User;
-                // Only generate ID if user doesn't have one
                 if (!userData.membershipNo) {
                     const year = userData.registrationYear || new Date().getFullYear();
                     const counterRef = doc(db, COUNTERS_COLLECTION, `year_${year}`);
@@ -353,10 +390,33 @@ export const StorageService = {
   addNotification: async (n: Notification) => { await setDoc(doc(db, NOTIFICATIONS_COLLECTION, n.id), n); },
   deleteNotification: async (id: string) => { await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, id)); },
 
-  sendMessage: async (m: Message) => { await setDoc(doc(db, MESSAGES_COLLECTION, m.id), m); },
+  sendMessage: async (m: Message) => { 
+      // Sanitize message to avoid undefined values
+      const msgData = { ...m };
+      if (msgData.adminReply === undefined) msgData.adminReply = '';
+      await setDoc(doc(db, MESSAGES_COLLECTION, m.id), msgData); 
+  },
   markMessageReplied: async (id: string, reply: string) => { 
       await updateDoc(doc(db, MESSAGES_COLLECTION, id), { status: 'REPLIED', adminReply: reply }); 
   },
+
+  addSponsor: async (s: Sponsor) => { 
+      const safeSponsor = { ...s };
+      if (safeSponsor.website === undefined) safeSponsor.website = '';
+      await setDoc(doc(db, SPONSORS_COLLECTION, s.id), safeSponsor); 
+  },
+
+  deleteSponsor: async (id: string) => { await deleteDoc(doc(db, SPONSORS_COLLECTION, id)); },
+
+  addNewsEvent: async (n: NewsEvent) => { 
+      const safeNews = { ...n };
+      if (safeNews.imageUrl === undefined) safeNews.imageUrl = '';
+      if (safeNews.location === undefined) safeNews.location = '';
+      if (safeNews.link === undefined) safeNews.link = ''; // Sanitize link
+      if (safeNews.date === undefined) safeNews.date = new Date().toLocaleDateString();
+      await setDoc(doc(db, NEWS_COLLECTION, n.id), safeNews); 
+  },
+  deleteNewsEvent: async (id: string) => { await deleteDoc(doc(db, NEWS_COLLECTION, id)); },
 
   createNewYear: async (year: number) => {
       const batch = writeBatch(db);
@@ -376,7 +436,7 @@ export const StorageService = {
   },
 
   resetDatabase: async () => {
-      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, MESSAGES_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, MAIL_COLLECTION, COUNTERS_COLLECTION];
+      const collections = [USERS_COLLECTION, BENEFITS_COLLECTION, NOTIFICATIONS_COLLECTION, MESSAGES_COLLECTION, YEARS_COLLECTION, QUESTIONS_COLLECTION, SETTINGS_COLLECTION, MAIL_COLLECTION, COUNTERS_COLLECTION, SPONSORS_COLLECTION, NEWS_COLLECTION];
       for (const col of collections) await deleteCollectionInBatches(col);
       await setDoc(doc(db, USERS_COLLECTION, ADMIN_USER.id), ADMIN_USER);
   },
@@ -412,6 +472,7 @@ export const StorageService = {
                 const updates: any = { 
                     paymentStatus: PaymentStatus.UNPAID,
                     paymentRemarks: '',
+                    paymentProofUrl: '', // Reset proof
                     lastPaymentReset: resetDate 
                 };
                 if (user.status === UserStatus.APPROVED) {

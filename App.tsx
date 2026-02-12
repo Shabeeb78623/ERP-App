@@ -10,7 +10,7 @@ import VerificationView from './components/VerificationView'; // Import Verifica
 import { UserBenefits, AccountSettings, UserNotifications } from './components/UserViews';
 import { StorageService } from './services/storageService';
 import { initializeAuth } from './services/firebase';
-import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification, Message, YearConfig } from './types';
+import { ViewState, Role, User, DashboardStats, UserStatus, PaymentStatus, BenefitRecord, Notification, Message, YearConfig, Sponsor, NewsEvent } from './types';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -21,6 +21,10 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [years, setYears] = useState<YearConfig[]>([]);
+  
+  // New Data States
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'USER'>('USER');
 
@@ -53,6 +57,8 @@ const App: React.FC = () => {
     let unsubscribeNotifs: () => void;
     let unsubscribeMessages: () => void;
     let unsubscribeYears: () => void;
+    let unsubscribeSponsors: () => void;
+    let unsubscribeNews: () => void;
 
     const init = async () => {
         // 1. Ensure Auth (fixes permission errors)
@@ -77,6 +83,14 @@ const App: React.FC = () => {
 
         unsubscribeYears = StorageService.subscribeToYears((liveYears) => {
             setYears(liveYears);
+        });
+
+        unsubscribeSponsors = StorageService.subscribeToSponsors((liveSponsors) => {
+            setSponsors(liveSponsors);
+        });
+
+        unsubscribeNews = StorageService.subscribeToNews((liveNews) => {
+            setNewsEvents(liveNews);
         });
 
         // 3. Restore Session from LocalStorage
@@ -110,6 +124,8 @@ const App: React.FC = () => {
         if (unsubscribeNotifs) unsubscribeNotifs();
         if (unsubscribeMessages) unsubscribeMessages();
         if (unsubscribeYears) unsubscribeYears();
+        if (unsubscribeSponsors) unsubscribeSponsors();
+        if (unsubscribeNews) unsubscribeNews();
     };
   }, []);
 
@@ -148,13 +164,12 @@ const App: React.FC = () => {
       
       // Hardcoded fallback for System Admin (Shabeeb)
       if (identifier === 'Shabeeb' && passwordInput === 'ShabeeB@2025') {
-        // Explicitly look for the 'admin-master' ID to avoid logging in as a promoted user
         const admin = users.find(u => u.id === 'admin-master');
         if (admin) {
           setCurrentUser(admin);
           setViewMode('ADMIN');
           setCurrentView('DASHBOARD');
-          localStorage.setItem('vadakara_session_user_id', admin.id); // Save session
+          localStorage.setItem('vadakara_session_user_id', admin.id);
           setIsLoading(false);
           return;
         }
@@ -165,20 +180,34 @@ const App: React.FC = () => {
         setUsers(freshUsers);
         
         const cleanId = identifier.trim().toLowerCase();
-        // Check for admin by username first
-        let user: User | undefined;
-        if (identifier === 'Shabeeb') {
-            user = freshUsers.find(u => u.id === 'admin-master');
-        } else {
-            user = freshUsers.find(u => 
-                (u.email && u.email.toLowerCase() === cleanId) || 
-                (u.mobile && u.mobile.trim() === cleanId)
-            );
-        }
+        
+        // Helper to normalize phone numbers: removes all non-digits, and removes '971' prefix if present
+        // This ensures 0501234567 == +971501234567
+        const normalizePhone = (p: string) => {
+            if(!p) return '';
+            let cleaned = p.replace(/\D/g, ''); // Remove non-digits
+            if (cleaned.startsWith('971')) cleaned = '0' + cleaned.substring(3);
+            if (cleaned.startsWith('00971')) cleaned = '0' + cleaned.substring(5);
+            return cleaned; 
+        };
+
+        const targetPhone = normalizePhone(cleanId);
+
+        let user = freshUsers.find(u => {
+            // Check Email
+            if (u.email && u.email.toLowerCase() === cleanId) return true;
+            
+            // Check Mobile (Robust)
+            if (u.mobile) {
+                const userPhone = normalizePhone(u.mobile);
+                if (userPhone && userPhone === targetPhone) return true;
+            }
+            return false;
+        });
         
         if (user && user.password === passwordInput) {
             setCurrentUser(user);
-            localStorage.setItem('vadakara_session_user_id', user.id); // Save session
+            localStorage.setItem('vadakara_session_user_id', user.id); 
             
             if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
                 setViewMode('ADMIN');
@@ -191,7 +220,7 @@ const App: React.FC = () => {
             }
             setCurrentView('DASHBOARD');
         } else {
-            alert("Invalid credentials.");
+            alert("Invalid credentials. Please check your mobile/email and password.");
         }
       } catch (e) {
           console.error(e);
@@ -324,12 +353,12 @@ const App: React.FC = () => {
 
     if (viewMode === 'USER') {
         switch (currentView) {
-            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
+            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} />;
             case 'CARD': return <MembershipCard user={currentUser} activeYear={activeYear} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
             case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />;
-            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} />;
+            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} />;
         }
     } else {
         // Admin View
@@ -342,6 +371,8 @@ const App: React.FC = () => {
                 notifications={notifications}
                 messages={messages}
                 years={years}
+                sponsors={sponsors}
+                newsEvents={newsEvents}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
@@ -360,6 +391,8 @@ const App: React.FC = () => {
                 notifications={notifications}
                 messages={messages}
                 years={years}
+                sponsors={sponsors}
+                newsEvents={newsEvents}
                 stats={stats} 
                 onUpdateUser={handleUpdateUser}
                 onAddBenefit={handleAddBenefit}
