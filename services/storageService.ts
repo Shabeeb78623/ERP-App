@@ -22,7 +22,7 @@ import { MANDALAMS, EMIRATES } from '../constants';
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
-const MESSAGES_COLLECTION = 'messages';
+const MESSAGES_COLLECTION = 'support_chats'; // Changed to match external App
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
 const SETTINGS_COLLECTION = 'settings';
@@ -82,13 +82,21 @@ const normalizeUser = (doc: any): User => {
         return String(val);
     };
 
+    // Password Fallback Logic for App Users
+    const eid = safeStr(data.emiratesId);
+    let pwd = safeStr(data.password);
+    // If password is missing but Emirates ID exists, use Emirates ID as default password
+    if (!pwd && eid) {
+        pwd = eid;
+    }
+
     return {
         id: doc.id,
         fullName: safeStr(data.fullName) || 'Unknown Member',
         email: safeStr(data.email),
         mobile: safeStr(data.mobile),
         whatsapp: safeStr(data.whatsapp) || safeStr(data.mobile),
-        emiratesId: safeStr(data.emiratesId),
+        emiratesId: eid,
         
         // Enums with fallback to prevent undefined
         mandalam: (Object.values(Mandalam).includes(data.mandalam) ? data.mandalam : Mandalam.VATAKARA) as Mandalam,
@@ -115,7 +123,7 @@ const normalizeUser = (doc: any): User => {
         permissions: Array.isArray(data.permissions) ? data.permissions : [],
         assignedMandalams: Array.isArray(data.assignedMandalams) ? data.assignedMandalams : [],
         
-        password: safeStr(data.password),
+        password: pwd, // Use the resolved password
         isImported: !!data.isImported,
         paymentRemarks: safeStr(data.paymentRemarks),
         paymentProofUrl: safeStr(data.paymentProofUrl) || safeStr(data.paymentProof),
@@ -145,6 +153,37 @@ const normalizeNews = (doc: any): NewsEvent => {
         location: safeStr(data.location),
         link: safeStr(data.link)
     };
+};
+
+// Helper for Message Content Normalization
+const normalizeMessageContent = (data: any): string => {
+    // 1. Try explicit fields
+    let content = data.content || data.message || data.body || data.text || '';
+    
+    // 2. If content is an object (common with Draftjs or Firestore maps), try to extract text
+    if (typeof content === 'object' && content !== null) {
+        if (content.text) return String(content.text);
+        if (content.blocks && Array.isArray(content.blocks)) {
+            return content.blocks.map((b: any) => b.text).join('\n');
+        }
+        return JSON.stringify(content); // Last resort
+    }
+    
+    content = String(content);
+    
+    // 3. Filter out empty JSON brackets which often appear as default values
+    if (content === '{}' || content === '[]') return '';
+    
+    return content;
+};
+
+// Helper for User Name Normalization in Messages
+const normalizeMessageUser = (data: any): string => {
+    if (data.userName) return String(data.userName);
+    if (data.name) return String(data.name);
+    if (data.senderName) return String(data.senderName);
+    if (data.user && typeof data.user === 'object' && data.user.name) return String(data.user.name);
+    return 'Member';
 };
 
 export const StorageService = {
@@ -183,9 +222,24 @@ export const StorageService = {
   },
 
   subscribeToMessages: (callback: (messages: Message[]) => void) => {
+      // Subscribe to 'support_chats' as requested
       const q = query(collection(db, MESSAGES_COLLECTION));
       return onSnapshot(q, (snapshot) => {
-          const msgs = snapshot.docs.map(doc => doc.data() as Message);
+          const msgs = snapshot.docs.map(doc => {
+              const d = doc.data();
+              
+              return {
+                  id: doc.id,
+                  userId: d.userId || '',
+                  userName: normalizeMessageUser(d),
+                  userRegNo: d.userRegNo || d.regNo || '',
+                  subject: d.subject || 'Support Chat',
+                  content: normalizeMessageContent(d), 
+                  date: d.date || new Date().toISOString(),
+                  status: d.status || 'NEW',
+                  adminReply: normalizeMessageContent({ content: d.adminReply }) // Use same normalization for reply
+              } as Message;
+          });
           msgs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(msgs);
       });
@@ -421,8 +475,11 @@ export const StorageService = {
   createNewYear: async (year: number) => {
       const batch = writeBatch(db);
       const s = await getDocs(collection(db, YEARS_COLLECTION));
+      // Archive existing
       s.forEach(d => batch.update(d.ref, { status: 'ARCHIVED' }));
+      // Set new year
       batch.set(doc(db, YEARS_COLLECTION, year.toString()), { year, status: 'ACTIVE', count: 0 });
+      // Reset or init counter for that year
       batch.set(doc(db, COUNTERS_COLLECTION, `year_${year}`), { lastSequence: 0 });
       await batch.commit();
   },

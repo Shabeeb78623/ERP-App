@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion, Sponsor, NewsEvent } from '../types';
-import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, CalendarClock, MessageSquare, Send, Calendar, MapPin, Upload, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
+import { User, UserStatus, PaymentStatus, BenefitRecord, RegistrationQuestion, Sponsor, NewsEvent, Message } from '../types';
+import { HeartHandshake, CheckCircle2, AlertCircle, Wallet, User as UserIcon, ShieldCheck, CalendarClock, MessageSquare, Send, Calendar, MapPin, Upload, Link as LinkIcon, Image as ImageIcon, Clock, CheckCircle } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface UserDashboardProps {
@@ -12,9 +12,10 @@ interface UserDashboardProps {
   activeYear: number;
   sponsors?: Sponsor[];
   newsEvents?: NewsEvent[];
+  messages?: Message[];
 }
 
-const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading, activeYear, sponsors = [], newsEvents = [] }) => {
+const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading, activeYear, sponsors = [], newsEvents = [], messages = [] }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [paymentProof, setPaymentProof] = useState<string>('');
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
@@ -94,6 +95,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
   }
 
   const isRenewal = user.registrationYear < activeYear;
+  
+  // Filter messages for current user
+  const myMessages = messages.filter(m => m.userId === user.id);
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-12">
@@ -282,37 +286,70 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                 )}
             </div>
 
-            {/* Contact Admin Section */}
+            {/* Contact Admin / Message History Section */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
                         <MessageSquare className="w-6 h-6" />
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold text-slate-900">Contact Admin</h2>
-                        <p className="text-xs text-slate-500">Send a message to the support team.</p>
+                        <h2 className="text-xl font-bold text-slate-900">Support & Messages</h2>
+                        <p className="text-xs text-slate-500">Contact admin or view previous tickets.</p>
                     </div>
                 </div>
-                <div className="space-y-4">
-                    <input 
-                        className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500"
-                        placeholder="Subject (e.g., Update Profile Request)"
-                        value={messageSubject}
-                        onChange={e => setMessageSubject(e.target.value)}
-                    />
-                    <textarea 
-                        className="w-full p-3 border border-slate-200 rounded-xl text-sm h-24 resize-none outline-none focus:border-indigo-500"
-                        placeholder="Type your message..."
-                        value={messageBody}
-                        onChange={e => setMessageBody(e.target.value)}
-                    />
-                    <button 
-                        onClick={handleSendMessage}
-                        disabled={isSendingMsg}
-                        className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-70"
-                    >
-                        {isSendingMsg ? 'Sending...' : <><Send className="w-4 h-4"/> Send Message</>}
-                    </button>
+
+                <div className="grid md:grid-cols-2 gap-8">
+                    {/* New Message Form */}
+                    <div className="space-y-4">
+                        <h4 className="font-bold text-slate-700 text-sm">Create New Ticket</h4>
+                        <input 
+                            className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500"
+                            placeholder="Subject (e.g., Update Profile Request)"
+                            value={messageSubject}
+                            onChange={e => setMessageSubject(e.target.value)}
+                        />
+                        <textarea 
+                            className="w-full p-3 border border-slate-200 rounded-xl text-sm h-32 resize-none outline-none focus:border-indigo-500"
+                            placeholder="Type your message..."
+                            value={messageBody}
+                            onChange={e => setMessageBody(e.target.value)}
+                        />
+                        <button 
+                            onClick={handleSendMessage}
+                            disabled={isSendingMsg}
+                            className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-70"
+                        >
+                            {isSendingMsg ? 'Sending...' : <><Send className="w-4 h-4"/> Send Message</>}
+                        </button>
+                    </div>
+
+                    {/* Message History List */}
+                    <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                        <h4 className="font-bold text-slate-700 text-sm sticky top-0 bg-white z-10 pb-2">Ticket History</h4>
+                        {myMessages.length > 0 ? (
+                            myMessages.map(msg => (
+                                <div key={msg.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
+                                    <div className="flex justify-between items-start">
+                                        <p className="font-bold text-sm text-slate-800">{msg.subject}</p>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${msg.status === 'REPLIED' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{msg.status}</span>
+                                    </div>
+                                    <p className="text-xs text-slate-600">{msg.content}</p>
+                                    <p className="text-[10px] text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(msg.date).toLocaleDateString()}</p>
+                                    
+                                    {msg.adminReply && (
+                                        <div className="mt-2 pt-2 border-t border-slate-200">
+                                            <p className="text-[10px] font-bold text-emerald-600 flex items-center gap-1 mb-1"><CheckCircle className="w-3 h-3"/> Admin Reply</p>
+                                            <p className="text-xs text-slate-700 bg-white p-2 rounded border border-slate-100">{msg.adminReply}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-8 text-slate-400 text-xs">
+                                No message history.
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

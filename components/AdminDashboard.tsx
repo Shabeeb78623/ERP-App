@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserStatus, PaymentStatus, DashboardStats, Mandalam, BenefitRecord, BenefitType, Role, Emirate, YearConfig, RegistrationQuestion, FieldType, Notification, Message, CardConfig, CardField, Sponsor, NewsEvent } from '../types';
-import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing, Mail, Copy, Send, Settings, CheckCircle, Smartphone, RotateCcw, MessageSquare, Reply, Globe, MapPin, HeartHandshake, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
+import { Search, Trash2, Eye, Plus, Calendar, Edit, X, Check, ArrowUp, ArrowDown, Wallet, LayoutTemplate, ImagePlus, RefreshCw, AlertCircle, FileUp, Move, Save, BarChart3, PieChart, ShieldAlert, Lock, Download, UserPlus, XCircle, CheckCircle2, QrCode, ShieldCheck, UserCheck, Building2, BellRing, Mail, Copy, Send, Settings, CheckCircle, Smartphone, RotateCcw, MessageSquare, Reply, Globe, MapPin, HeartHandshake, Link as LinkIcon, Image as ImageIcon, MessageCircle, Clock, ChevronRight, User as UserIcon } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 import { MANDALAMS } from '../constants';
 import emailjs from '@emailjs/browser';
@@ -22,6 +22,16 @@ import {
 const EMAILJS_SERVICE_ID = '';   
 const EMAILJS_TEMPLATE_ID = '';  
 const EMAILJS_PUBLIC_KEY = '';   
+
+const ADMIN_PERMISSIONS = [
+    { id: 'VIEW_USERS', label: 'View Users' },
+    { id: 'APPROVE_USERS', label: 'Approve/Reject Users' },
+    { id: 'MANAGE_PAYMENTS', label: 'Manage Payments' },
+    { id: 'MANAGE_BENEFITS', label: 'Manage Benefits' },
+    { id: 'SEND_NOTIFICATIONS', label: 'Send Notifications' },
+    { id: 'REPLY_MESSAGES', label: 'Reply to Messages' },
+    { id: 'MANAGE_CONTENT', label: 'Manage News & Sponsors' }
+];
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -48,15 +58,6 @@ const ALL_TABS = [
   'Import Users', 'Admin Assign', 'Reg Questions', 'New Year', 'Card Mgmt'
 ];
 
-const ADMIN_PERMISSIONS = [
-  { id: 'view_users', label: 'Can View Users' },
-  { id: 'edit_users', label: 'Can Edit Users' },
-  { id: 'approve_users', label: 'Can Approve Users' },
-  { id: 'manage_payments', label: 'Can Manage Payments' },
-  { id: 'manage_benefits', label: 'Can Manage Benefits' },
-  { id: 'send_notifications', label: 'Can Send Notifications' },
-];
-
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, benefits, notifications, messages = [], years, sponsors = [], newsEvents = [], stats, onUpdateUser, onAddBenefit, onDeleteBenefit, onDeleteNotification, onSwitchToUserView, isLoading }) => {
   const [activeTab, setActiveTab] = useState('User Approvals');
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,24 +75,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [replyContent, setReplyContent] = useState('');
   const [viewProofUrl, setViewProofUrl] = useState<string | null>(null);
   
+  // Chat State
+  const [selectedChatUser, setSelectedChatUser] = useState<string | null>(null);
+  
   // Email Modal State
   const [showEmailReminderModal, setShowEmailReminderModal] = useState(false);
-  const [emailReminderSubject, setEmailReminderSubject] = useState('Action Required: Membership Fee Payment');
-  const [emailReminderBody, setEmailReminderBody] = useState(`Dear Member,\n\nThis is a gentle reminder regarding your membership fee for the current fiscal year.\n\nPlease ensure your payment is completed to maintain your active status.\n\nRegards,\nAdmin Team`);
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
-  const [sendingProgress, setSendingProgress] = useState(0);
   
-  // EmailJS Config State
-  const [emailConfig, setEmailConfig] = useState({
-      serviceId: EMAILJS_SERVICE_ID || localStorage.getItem('emailjs_service_id') || '',
-      templateId: EMAILJS_TEMPLATE_ID || localStorage.getItem('emailjs_template_id') || '',
-      publicKey: EMAILJS_PUBLIC_KEY || localStorage.getItem('emailjs_public_key') || ''
-  });
-  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  // Admin Assign State
+  const [isAssigningAdmin, setIsAssigningAdmin] = useState(false);
 
   // Content Mgmt State
   const [sponsorForm, setSponsorForm] = useState<Partial<Sponsor>>({});
-  // Add date to news form initial state, default to today
   const [newsForm, setNewsForm] = useState<Partial<NewsEvent>>({ type: 'NEWS', date: new Date().toISOString().split('T')[0] });
   const [isUploadingContent, setIsUploadingContent] = useState(false);
 
@@ -181,7 +175,49 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       loadData();
   }, [activeTab, isQuestionModalOpen]);
 
-  // ... (Keep existing effects for drag/drop)
+  // --- HELPER: Resolve User Name ---
+  const resolveUserName = (userId: string, fallbackName: string) => {
+      // 1. Try to find the user in the live users list
+      const u = users.find(user => user.id === userId);
+      if (u) return u.fullName;
+      
+      // 2. If fallback name exists and isn't generic 'Member' or 'User', use it (it might be saved on the message)
+      if (fallbackName && fallbackName !== 'Member' && fallbackName !== 'User' && fallbackName !== 'Unknown') return fallbackName;
+      
+      // 3. Last resort
+      return "Unknown Member";
+  };
+
+  // --- HELPER: Group Messages by User ---
+  const getGroupedMessages = () => {
+      const groups: Record<string, { user: User | undefined, messages: Message[], latestDate: Date, unreadCount: number }> = {};
+      
+      messages.forEach(msg => {
+          const userId = msg.userId || 'unknown';
+          if (!groups[userId]) {
+              const u = users.find(user => user.id === userId);
+              groups[userId] = { 
+                  user: u, 
+                  messages: [], 
+                  latestDate: new Date(0),
+                  unreadCount: 0
+              };
+          }
+          groups[userId].messages.push(msg);
+          const msgDate = new Date(msg.date);
+          if (msgDate > groups[userId].latestDate) {
+              groups[userId].latestDate = msgDate;
+          }
+          if (msg.status !== 'REPLIED') {
+              groups[userId].unreadCount++;
+          }
+      });
+
+      // Sort groups by latest message
+      return Object.entries(groups)
+          .sort(([, a], [, b]) => b.latestDate.getTime() - a.latestDate.getTime())
+          .map(([userId, data]) => ({ userId, ...data }));
+  };
 
   // ... (Keep existing user authorization and filter logic)
   const getAuthorizedUsers = () => {
@@ -197,12 +233,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
             ? currentUser.assignedMandalams 
             : [currentUser.mandalam];
         return effectiveUsers.filter(u => allowed.includes(u.mandalam));
-    }
-    if (currentUser.role === Role.CUSTOM_ADMIN) {
-        if (currentUser.assignedMandalams && currentUser.assignedMandalams.length > 0) {
-             return effectiveUsers.filter(u => currentUser.assignedMandalams!.includes(u.mandalam));
-        }
-        return effectiveUsers;
     }
     return [];
   };
@@ -226,18 +256,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       (b.regNo && b.regNo.toLowerCase().includes(searchTerm.toLowerCase()))
   ));
 
-  // ... (Keep all handler functions: handleApproveUser, handleRejectUser, etc.)
+  // Actions
   const handleApproveUser = async (id: string) => { if(confirm("Are you sure you want to APPROVE this user?")) { await StorageService.updateUser(id, { status: UserStatus.APPROVED, approvedBy: currentUser.fullName, approvedAt: new Date().toLocaleDateString() }); } };
   const handleRejectUser = async (id: string) => { if(confirm("Are you sure you want to REJECT this user?")) { await StorageService.updateUser(id, { status: UserStatus.REJECTED }); } };
   const handleApprovePayment = async (id: string) => { if(confirm("Confirm payment received and approve user?")) { await StorageService.updateUser(id, { paymentStatus: PaymentStatus.PAID, status: UserStatus.APPROVED, approvedBy: currentUser.fullName, approvedAt: new Date().toLocaleDateString() }); } };
   const handleRevokePayment = async (id: string) => { if(confirm("Action: REVOKE PAYMENT\n\nThis will mark the user as UNPAID. They will lose access to benefits/ID card until paid again.\n\nContinue?")) { await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID }); } };
   const handleRejectPayment = async (id: string) => { if(confirm("Reject this payment submission? User will be notified.")) { await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID }); } };
-  const handleRemindUnpaid = async () => { /* ... existing code ... */ };
+  const handleRemindUnpaid = async () => { /* ... */ };
   const getUnpaidEmails = () => authorizedUsers.filter(u => u.role === Role.USER && u.paymentStatus !== PaymentStatus.PAID && u.email && u.email.includes('@')).map(u => u.email as string);
   const handleOpenEmailModal = () => { if (getUnpaidEmails().length === 0) { alert("No unpaid members with valid email addresses found."); return; } setShowEmailReminderModal(true); };
-  const handleSaveEmailConfig = () => { localStorage.setItem('emailjs_service_id', emailConfig.serviceId); localStorage.setItem('emailjs_template_id', emailConfig.templateId); localStorage.setItem('emailjs_public_key', emailConfig.publicKey); alert("Email configuration saved locally!"); setShowEmailConfig(false); };
-  const handleSendEmails = async () => { /* ... existing code ... */ };
-  const handleCopyEmails = () => { navigator.clipboard.writeText(getUnpaidEmails().join(', ')); alert("Emails copied!"); };
   const handleAddBenefitSubmit = () => {
       if(!benefitForm.userId || !benefitForm.amount) return;
       const user = users.find(u => u.id === benefitForm.userId);
@@ -264,17 +291,93 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setReplyMessage(null); setReplyContent(''); alert("Reply sent successfully.");
       } catch (e) { alert("Failed to send reply."); console.error(e); }
   };
-  const handleAssignAdmin = async (user: User, role: Role) => { /* ... existing code ... */ };
+  
+  // --- ROBUST ADMIN ASSIGNMENT ---
+  const handleAssignAdmin = async (user: User, role: Role) => {
+      // Logic for opening modals
+      if (role === Role.MANDALAM_ADMIN) { 
+          setSelectedUserForAdmin(user); 
+          setAssignMandalamSel(user.assignedMandalams || [user.mandalam]); 
+          setShowMandalamModal(true); 
+      } 
+      else if (role === Role.CUSTOM_ADMIN) { 
+          setSelectedUserForAdmin(user); 
+          setCustomPerms(user.permissions || []); 
+          setCustomMandalams(user.assignedMandalams || []); 
+          setShowCustomModal(true); 
+      } 
+      else { 
+          // Direct assignment for MASTER_ADMIN or USER
+          if(confirm(`${role === Role.USER ? "Revoke Admin Rights" : "Grant Master Admin"} for ${user.fullName}?`)) { 
+              setIsAssigningAdmin(true);
+              try {
+                  await StorageService.updateUser(user.id, { role: role, assignedMandalams: [], permissions: [] }); 
+                  alert("User role updated successfully. The change is effective immediately on Web and App."); 
+              } catch (e) {
+                  alert("Failed to update role.");
+              } finally {
+                  setIsAssigningAdmin(false);
+              }
+          } 
+      }
+  };
+
   const handleDeleteUserAccount = async (userId: string, name: string) => { if (confirm(`Permanently delete ${name}?`)) { try { await StorageService.deleteUser(userId); alert("Deleted."); } catch (e) { alert("Failed."); } } };
-  const saveAdminAssignment = async () => { /* ... existing code ... */ };
-  const handleImportUsers = async () => { /* ... existing code ... */ };
-  const handleAddNewUser = async () => { /* ... existing code ... */ };
-  const handleStartNewYear = async () => { /* ... existing code ... */ };
-  const handleDeleteYear = async (year: number) => { /* ... existing code ... */ };
+  
+  const saveAdminAssignment = async () => {
+      if (!selectedUserForAdmin) return;
+      setIsAssigningAdmin(true);
+      try {
+        if (showMandalamModal) { 
+            await StorageService.updateUser(selectedUserForAdmin.id, { 
+                role: Role.MANDALAM_ADMIN, 
+                assignedMandalams: assignMandalamSel 
+            }); 
+        } else if (showCustomModal) { 
+            await StorageService.updateUser(selectedUserForAdmin.id, { 
+                role: Role.CUSTOM_ADMIN, 
+                permissions: customPerms, 
+                assignedMandalams: customMandalams 
+            }); 
+        }
+        alert("Admin privileges granted successfully.");
+        // Close Modals
+        setShowMandalamModal(false); 
+        setShowCustomModal(false); 
+        setSelectedUserForAdmin(null);
+      } catch (e) { 
+          alert("Failed to save assignment. Please try again."); 
+          console.error(e);
+      } finally {
+          setIsAssigningAdmin(false);
+      }
+  };
+
+  const handleImportUsers = async () => { /* ... */ };
+  const handleAddNewUser = async () => { /* ... */ };
+  
+  const handleStartNewYear = async () => {
+      const year = parseInt(newYearInput, 10);
+      if(isNaN(year) || year < 2024 || year > 2050) return alert("Invalid year");
+      if(!confirm(`Start Year ${year}? This will archive current data and reset payment status for all members.`)) return;
+      setIsProcessingYear(true);
+      try { 
+          await StorageService.createNewYear(year); 
+          await StorageService.resetAllUserPayments(year); 
+          alert(`Year ${year} has been successfully initialized.`); 
+          setNewYearInput(String(year + 1)); 
+      } catch (e: any) { 
+          alert("Failed to start new year: " + e.message); 
+      } finally { 
+          setIsProcessingYear(false); 
+      }
+  };
+
+  const handleDeleteYear = async (year: number) => { /* ... */ };
   const saveEditUser = async () => { if (!editUserForm.id) return; await onUpdateUser(editUserForm.id, { ...editUserForm }); setShowEditUserModal(false); setEditUserForm({}); };
-  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... existing code ... */ };
-  const handleSponsorUpload = async (e: React.ChangeEvent<HTMLInputElement>) => { /* ... existing code ... */ };
-  const handleNewsImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... existing code ... */ };
+  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
+  const handleSponsorUpload = async (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
+  const handleNewsImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
   
   const handleAddNews = async () => {
       if(!newsForm.title || !newsForm.description) return alert("Title and Description required");
@@ -284,7 +387,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           title: newsForm.title!, 
           description: newsForm.description!, 
           type: newsForm.type || 'NEWS', 
-          date: newsForm.date || new Date().toLocaleDateString(), // Use the selected date 
+          date: newsForm.date || new Date().toLocaleDateString(), 
           imageUrl: newsForm.imageUrl, 
           location: newsForm.location, 
           link: newsForm.link 
@@ -293,9 +396,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setIsUploadingContent(false);
   };
 
-  const addCardVariable = async () => { /* ... existing code ... */ };
-  const updateCardField = async (id: string, updates: Partial<CardField>) => { /* ... existing code ... */ };
-  const deleteCardField = async (id: string) => { /* ... existing code ... */ };
+  const addCardVariable = async () => {
+      if (!selectedVariable) return;
+      const currentConfig = cardConfig || { front: { templateImage: '', fields: [], width: 800, height: 500 }, back: { templateImage: '', fields: [], width: 800, height: 500 } };
+      let label = "Unknown", key = selectedVariable, sample = "Sample Text", type: 'TEXT' | 'QR' = 'TEXT';
+      if (key === 'membershipNo') { label = 'Registration No'; sample = '20250001'; } 
+      else if (key === 'registrationDate') { label = 'Joined Date'; sample = '01/01/2025'; } 
+      else if (key === 'qr_code_verify') { label = 'Verification QR Code'; sample = 'QR'; type = 'QR'; } 
+      else { const q = questions.find(q => q.id === key); if (q) { label = q.label; key = (q.systemMapping && q.systemMapping !== 'NONE') ? q.systemMapping : q.id; sample = q.label; } }
+      const newField: CardField = { id: `field-${Date.now()}`, label, key, x: 50, y: 50, fontSize: 14, color: '#000000', fontWeight: 'bold', sampleValue: sample, type };
+      const currentSide = currentConfig[activeCardSide] || { templateImage: '', fields: [], width: 800, height: 500 };
+      const updatedSide = { ...currentSide, fields: [...(currentSide.fields || []), newField] };
+      const updatedConfig = { ...currentConfig, [activeCardSide]: updatedSide };
+      setCardConfig(updatedConfig); 
+      await StorageService.saveCardConfig(updatedConfig); 
+      setSelectedVariable('');
+  };
+
+  const updateCardField = async (id: string, updates: Partial<CardField>) => { /* ... */ };
+  const deleteCardField = async (id: string) => { /* ... */ };
   const handleDragStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); setDraggedFieldId(id); };
 
   const StatCard = ({ label, value, colorClass }: { label: string, value: string | number, colorClass: string }) => (
@@ -308,7 +427,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const pendingPayments = filteredList.filter(u => u.paymentStatus === PaymentStatus.PENDING);
   const paymentHistory = filteredList.filter(u => u.paymentStatus === PaymentStatus.PAID || (u.paymentStatus === PaymentStatus.UNPAID && u.paymentRemarks));
 
-  const handleDownloadCSV = () => { /* ... existing code ... */ };
+  const handleDownloadCSV = () => { /* ... */ };
 
   const isSystemAdmin = currentUser.id === 'admin-master';
   const isMembershipPending = !isSystemAdmin && currentUser.paymentStatus !== PaymentStatus.PAID;
@@ -404,7 +523,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* ... (Keep existing content for Sponsors, Messages, Payment Subs, Users Overview, etc.) ... */}
+      {/* ... (Keep existing content for Sponsors, Payment Subs, Users Overview, etc.) ... */}
       {activeTab === 'Sponsors' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* ... Existing Sponsor Content ... */}
@@ -437,61 +556,127 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           </div>
       )}
 
-      {/* MESSAGES TAB */}
+      {/* MESSAGES TAB - REDESIGNED CHAT INTERFACE */}
       {activeTab === 'Messages' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                  <h3 className="font-bold text-slate-800">Inbox (User Messages)</h3>
-                  <button onClick={() => { /* Force refresh handled by snapshot */ }} className="text-xs text-primary font-bold hover:underline">Refresh</button>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row h-[700px] overflow-hidden">
+              {/* Left Sidebar: User List */}
+              <div className={`${selectedChatUser ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 border-r border-slate-100 bg-slate-50`}>
+                  <div className="p-4 border-b border-slate-100 bg-white">
+                      <h3 className="font-bold text-slate-800 text-sm mb-3">Support Chats</h3>
+                      <div className="relative">
+                          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input 
+                            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-primary"
+                            placeholder="Search member..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                          />
+                      </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                      {getGroupedMessages()
+                        .filter(g => resolveUserName(g.userId, 'Unknown').toLowerCase().includes(searchTerm.toLowerCase()))
+                        .map(group => {
+                          const name = resolveUserName(group.userId, 'Member');
+                          const active = selectedChatUser === group.userId;
+                          
+                          return (
+                              <div 
+                                key={group.userId} 
+                                onClick={() => setSelectedChatUser(group.userId)}
+                                className={`p-4 border-b border-slate-100 cursor-pointer transition-colors hover:bg-white flex gap-3 ${active ? 'bg-white border-l-4 border-l-primary shadow-sm' : ''}`}
+                              >
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${active ? 'bg-primary text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                      {name.charAt(0)}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                      <div className="flex justify-between items-baseline mb-1">
+                                          <p className={`text-sm font-bold truncate ${active ? 'text-primary' : 'text-slate-800'}`}>{name}</p>
+                                          <span className="text-[10px] text-slate-400">{group.latestDate.toLocaleDateString()}</span>
+                                      </div>
+                                      <p className="text-xs text-slate-500 truncate">{group.messages[group.messages.length - 1].content}</p>
+                                      {group.unreadCount > 0 && (
+                                          <span className="mt-2 inline-block px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                                              {group.unreadCount} New
+                                          </span>
+                                      )}
+                                  </div>
+                              </div>
+                          );
+                      })}
+                      {getGroupedMessages().length === 0 && <div className="p-8 text-center text-xs text-slate-400">No conversations yet.</div>}
+                  </div>
               </div>
-              <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs text-slate-500">
-                          <tr>
-                              <th className="px-6 py-3">Date</th>
-                              <th className="px-6 py-3">Member</th>
-                              <th className="px-6 py-3">Subject / Message</th>
-                              <th className="px-6 py-3">Status</th>
-                              <th className="px-6 py-3 text-right">Action</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                          {messages.map(m => {
-                              // Safely format date if it's ISO string
-                              let dateDisplay = m.date;
-                              try { 
-                                  const d = new Date(m.date);
-                                  if(!isNaN(d.getTime())) dateDisplay = d.toLocaleDateString();
-                              } catch(e) {}
 
-                              return (
-                              <tr key={m.id} className="hover:bg-slate-50">
-                                  <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">{dateDisplay}</td>
-                                  <td className="px-6 py-4">
-                                      <p className="font-bold text-slate-900">{m.userName}</p>
-                                      <p className="text-xs text-slate-500 font-mono">{m.userRegNo}</p>
-                                  </td>
-                                  <td className="px-6 py-4 max-w-xs">
-                                      <p className="font-bold text-sm truncate">{m.subject}</p>
-                                      <p className="text-slate-600 text-xs truncate">{m.content}</p>
-                                      {m.adminReply && <p className="text-[10px] text-emerald-600 mt-1 bg-emerald-50 p-1 rounded w-fit">Replied: {m.adminReply}</p>}
-                                  </td>
-                                  <td className="px-6 py-4">
-                                      {m.status === 'REPLIED' ? <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full uppercase">Replied</span> : <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full uppercase">New</span>}
-                                  </td>
-                                  <td className="px-6 py-4 text-right">
-                                      <button onClick={() => { setReplyMessage(m); setReplyContent(`Re: ${m.subject}\n\n`); }} className="flex items-center gap-1 ml-auto text-xs bg-white border border-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg font-bold text-slate-700"><Reply className="w-3 h-3" /> Reply</button>
-                                  </td>
-                              </tr>
-                          )})}
-                          {messages.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">No messages found.</td></tr>}
-                      </tbody>
-                  </table>
+              {/* Right: Chat Thread */}
+              <div className={`${!selectedChatUser ? 'hidden md:flex' : 'flex'} flex-col flex-1 bg-white`}>
+                  {selectedChatUser ? (
+                      <>
+                          {/* Chat Header */}
+                          <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white shadow-sm z-10">
+                              <div className="flex items-center gap-3">
+                                  <button onClick={() => setSelectedChatUser(null)} className="md:hidden p-2 text-slate-500"><ChevronRight className="w-5 h-5 rotate-180" /></button>
+                                  <div>
+                                      <h3 className="font-bold text-slate-900">{resolveUserName(selectedChatUser, 'Member')}</h3>
+                                      <p className="text-xs text-slate-500 font-mono">ID: {users.find(u => u.id === selectedChatUser)?.membershipNo || 'N/A'}</p>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* Messages Area */}
+                          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+                              {messages.filter(m => m.userId === selectedChatUser).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()).map(msg => (
+                                  <div key={msg.id} className="space-y-2">
+                                      {/* User Message */}
+                                      <div className="flex gap-3">
+                                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mt-1 shrink-0">
+                                              {resolveUserName(msg.userId, 'U').charAt(0)}
+                                          </div>
+                                          <div className="bg-white border border-slate-200 p-4 rounded-r-xl rounded-bl-xl shadow-sm max-w-[80%]">
+                                              <p className="text-xs font-bold text-slate-400 mb-1">{msg.subject}</p>
+                                              <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                                              <p className="text-[10px] text-slate-400 mt-2 text-right">{new Date(msg.date).toLocaleString()}</p>
+                                          </div>
+                                      </div>
+
+                                      {/* Admin Reply or Action */}
+                                      {msg.adminReply ? (
+                                          <div className="flex gap-3 justify-end">
+                                              <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-l-xl rounded-br-xl shadow-sm max-w-[80%]">
+                                                  <p className="text-xs font-bold text-emerald-600 mb-1 flex items-center gap-1 justify-end">
+                                                      Replied <CheckCircle className="w-3 h-3"/>
+                                                  </p>
+                                                  <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{msg.adminReply}</p>
+                                              </div>
+                                              <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold text-white mt-1 shrink-0">
+                                                  A
+                                              </div>
+                                          </div>
+                                      ) : (
+                                          <div className="flex justify-end pr-11">
+                                              <button 
+                                                  onClick={() => { setReplyMessage(msg); setReplyContent(`Hi ${resolveUserName(msg.userId, 'Member')},\n\n`); }}
+                                                  className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-white px-3 py-1 rounded-full border border-blue-100 shadow-sm"
+                                              >
+                                                  <Reply className="w-3 h-3"/> Reply to this
+                                              </button>
+                                          </div>
+                                      )}
+                                  </div>
+                              ))}
+                          </div>
+                      </>
+                  ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                          <MessageSquare className="w-16 h-16 mb-4 opacity-20" />
+                          <p>Select a conversation to start chatting</p>
+                      </div>
+                  )}
               </div>
           </div>
       )}
 
-      {/* ... (Keep Payment Subs, etc) ... */}
+      {/* ... (Keep other tabs) ... */}
       {activeTab === 'Payment Subs' && (
           <div className="space-y-6">
                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><div className="p-4 bg-orange-50 border-b border-orange-100 flex justify-between items-center"><h3 className="font-bold text-orange-800 flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Pending Payment Approvals</h3><span className="text-xs font-bold bg-white text-orange-600 px-2 py-1 rounded-full">{pendingPayments.length} Requests</span></div><div className="divide-y divide-slate-100">{pendingPayments.length > 0 ? pendingPayments.map(u => (<div key={u.id} className="p-4 flex flex-col md:flex-row justify-between items-center hover:bg-slate-50"><div className="flex-1"><div className="flex items-center gap-3"><p className="font-bold text-slate-900">{u.fullName}</p><span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-500">{u.membershipNo}</span></div><div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-3"><p className="text-xs text-blue-500 font-bold uppercase mb-1">Payment Remarks / Transaction ID</p><p className="text-sm text-slate-700 font-medium">"{u.paymentRemarks}"</p>{u.paymentProofUrl && <button onClick={() => setViewProofUrl(u.paymentProofUrl!)} className="mt-2 text-xs bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 w-fit"><ImageIcon className="w-3 h-3"/> View Proof</button>}</div></div><div className="flex items-center gap-3 mt-4 md:mt-0 ml-4"><button onClick={() => setViewingUser(u)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg"><Eye className="w-5 h-5"/></button><button onClick={() => handleApprovePayment(u.id)} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 shadow-sm flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Approve</button><button onClick={() => handleRejectPayment(u.id)} className="px-4 py-2 bg-white text-red-600 border border-red-200 text-sm font-bold rounded-lg hover:bg-red-50 flex items-center gap-2"><XCircle className="w-4 h-4" /> Reject</button></div></div>)) : (<div className="p-8 text-center text-slate-400 italic">No pending payment submissions.</div>)}</div></div>
@@ -570,11 +755,86 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
       {/* ... (Keep other tabs) ... */}
       {activeTab === 'Card Mgmt' && currentUser.role === Role.MASTER_ADMIN && (
-          <div className="space-y-6"><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><div className="flex justify-between items-start mb-6"><div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-primary" /> ID Card Designer</h3><p className="text-slate-500 text-sm mt-1">Upload distinct designs for Card 1 (Front/Main) and Card 2 (Back/Certificate).</p></div><div className="flex gap-4"><div className="bg-slate-100 rounded-lg p-1 flex"><button onClick={() => setActiveCardSide('front')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'front' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 1</button><button onClick={() => setActiveCardSide('back')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'back' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 2</button></div><label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm"><ImagePlus className="w-4 h-4" />{isUploadingTemplate ? 'Uploading...' : 'Upload Template'}<input type="file" accept="image/*" className="hidden" onChange={handleTemplateUpload} disabled={isUploadingTemplate} /></label></div></div><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-slate-100 rounded-xl p-4 border border-slate-200 flex items-center justify-center min-h-[400px] select-none relative overflow-hidden">{cardConfig && cardConfig[activeCardSide].templateImage ? (<div className="relative shadow-2xl inline-block"><img ref={cardImageRef} src={cardConfig[activeCardSide].templateImage} alt="Card Template" className="max-w-full h-auto rounded-lg pointer-events-none" />{cardConfig[activeCardSide].fields.map(field => (<div key={field.id} onMouseDown={(e) => handleDragStart(e, field.id)} style={{ position: 'absolute', left: `${field.x}%`, top: `${field.y}%`, transform: 'translate(-50%, -50%)', color: field.color, fontSize: `${field.fontSize}px`, fontWeight: field.fontWeight, whiteSpace: 'nowrap', cursor: 'move', border: draggedFieldId === field.id ? '2px dashed #3b82f6' : '1px dashed transparent', padding: '4px', zIndex: 10, userSelect: 'none' }} className="hover:border-slate-400 hover:bg-white/20 transition-all rounded">{field.type === 'QR' ? (<div className="w-16 h-16 bg-white flex items-center justify-center border border-slate-300"><QrCode className="w-10 h-10 text-slate-800" /></div>) : field.sampleValue}</div>))}</div>) : (<div className="text-center text-slate-400"><LayoutTemplate className="w-16 h-16 mx-auto mb-4 opacity-20" /><p>No template uploaded for {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}.</p></div>)}</div><div className="space-y-6"><div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}</h4><div className="flex gap-2"><select className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)}><option value="">-- Select Variable --</option><option value="membershipNo">Registration No (ID)</option><option value="registrationDate">Joined Date</option><option value="qr_code_verify" className="font-bold">🔳 QR Code (Verification)</option><optgroup label="Registration Questions">{questions.map(q => (<option key={q.id} value={q.id}>{q.label}</option>))}</optgroup></select><button onClick={addCardVariable} disabled={!selectedVariable || !cardConfig} className="px-3 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-50">Add</button></div></div><div className="space-y-3 max-h-[400px] overflow-y-auto">{cardConfig?.[activeCardSide].fields.map(field => (<div key={field.id} className="bg-white p-3 rounded-lg border border-slate-200"><div className="flex justify-between items-center mb-1"><span className="font-bold text-xs flex items-center gap-1 truncate max-w-[150px]">{field.type === 'QR' && <QrCode className="w-3 h-3 text-blue-500" />}{field.label}</span><button onClick={() => deleteCardField(field.id)} className="text-red-400"><X className="w-3 h-3"/></button></div><div className="grid grid-cols-2 gap-2 mb-2 bg-slate-50 p-2 rounded"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">X Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.x)} onChange={(e) => updateCardField(field.id, { x: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Y Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.y)} onChange={(e) => updateCardField(field.id, { y: Number(e.target.value) })} /></div></div>{field.type !== 'QR' && (<div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Size (px)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Color</label><input type="color" className="w-full h-7 border rounded p-0 cursor-pointer" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} /></div></div>)}</div>))}</div></div></div></div></div>
+          <div className="space-y-6"><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><div className="flex justify-between items-start mb-6"><div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-primary" /> ID Card Designer</h3><p className="text-slate-500 text-sm mt-1">Upload distinct designs for Card 1 (Front/Main) and Card 2 (Back/Certificate).</p></div><div className="flex gap-4"><div className="bg-slate-100 rounded-lg p-1 flex"><button onClick={() => setActiveCardSide('front')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'front' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 1</button><button onClick={() => setActiveCardSide('back')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'back' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 2</button></div><label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm"><ImagePlus className="w-4 h-4" />{isUploadingTemplate ? 'Uploading...' : 'Upload Template'}<input type="file" accept="image/*" className="hidden" onChange={handleTemplateUpload} disabled={isUploadingTemplate} /></label></div></div><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-slate-100 rounded-xl p-4 border border-slate-200 flex items-center justify-center min-h-[400px] select-none relative overflow-hidden">{cardConfig && cardConfig[activeCardSide].templateImage ? (<div className="relative shadow-2xl inline-block"><img ref={cardImageRef} src={cardConfig[activeCardSide].templateImage} alt="Card Template" className="max-w-full h-auto rounded-lg pointer-events-none" />{cardConfig[activeCardSide].fields.map(field => (<div key={field.id} onMouseDown={(e) => handleDragStart(e, field.id)} style={{ position: 'absolute', left: `${field.x}%`, top: `${field.y}%`, transform: 'translate(-50%, -50%)', color: field.color, fontSize: `${field.fontSize}px`, fontWeight: field.fontWeight, whiteSpace: 'nowrap', cursor: 'move', border: draggedFieldId === field.id ? '2px dashed #3b82f6' : '1px dashed transparent', padding: '4px', zIndex: 10, userSelect: 'none' }} className="hover:border-slate-400 hover:bg-white/20 transition-all rounded">{field.type === 'QR' ? (<div className="w-16 h-16 bg-white flex items-center justify-center border border-slate-300"><QrCode className="w-10 h-10 text-slate-800" /></div>) : field.sampleValue}</div>))}</div>) : (<div className="text-center text-slate-400"><LayoutTemplate className="w-16 h-16 mx-auto mb-4 opacity-20" /><p>No template uploaded for {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}.</p></div>)}</div><div className="space-y-6"><div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}</h4><div className="flex gap-2"><select className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)}><option value="">-- Select Variable --</option><option value="membershipNo">Registration No (ID)</option><option value="registrationDate">Joined Date</option><option value="qr_code_verify" className="font-bold">🔳 QR Code (Verification)</option><optgroup label="Registration Questions">{questions.map(q => (<option key={q.id} value={q.id}>{q.label}</option>))}</optgroup></select><button onClick={addCardVariable} disabled={!selectedVariable} className="px-3 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-50">Add</button></div></div><div className="space-y-3 max-h-[400px] overflow-y-auto">{cardConfig?.[activeCardSide].fields.map(field => (<div key={field.id} className="bg-white p-3 rounded-lg border border-slate-200"><div className="flex justify-between items-center mb-1"><span className="font-bold text-xs flex items-center gap-1 truncate max-w-[150px]">{field.type === 'QR' && <QrCode className="w-3 h-3 text-blue-500" />}{field.label}</span><button onClick={() => deleteCardField(field.id)} className="text-red-400"><X className="w-3 h-3"/></button></div><div className="grid grid-cols-2 gap-2 mb-2 bg-slate-50 p-2 rounded"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">X Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.x)} onChange={(e) => updateCardField(field.id, { x: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Y Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.y)} onChange={(e) => updateCardField(field.id, { y: Number(e.target.value) })} /></div></div>{field.type !== 'QR' && (<div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Size (px)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Color</label><input type="color" className="w-full h-7 border rounded p-0 cursor-pointer" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} /></div></div>)}</div>))}</div></div></div></div></div>
       )}
 
       {/* ... (Keep modals) ... */}
       
+      {/* --- ADMIN ASSIGN MODALS (Fix: Ensure they save correctly) --- */}
+      {showMandalamModal && selectedUserForAdmin && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4">Assign Mandalam Admin</h3>
+                  <p className="text-sm text-slate-500 mb-3">Select the mandalam(s) this admin manages:</p>
+                  <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                      {MANDALAMS.map(m => (
+                          <label key={m} className="flex items-center gap-2 p-2 border rounded hover:bg-slate-50 cursor-pointer">
+                              <input 
+                                  type="checkbox" 
+                                  checked={assignMandalamSel.includes(m as Mandalam)}
+                                  onChange={(e) => {
+                                      if (e.target.checked) setAssignMandalamSel([...assignMandalamSel, m as Mandalam]);
+                                      else setAssignMandalamSel(assignMandalamSel.filter(x => x !== m));
+                                  }}
+                              />
+                              <span className="text-sm">{m}</span>
+                          </label>
+                      ))}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                      <button onClick={() => setShowMandalamModal(false)} className="px-4 py-2 text-slate-600 font-bold text-sm">Cancel</button>
+                      <button onClick={saveAdminAssignment} disabled={isAssigningAdmin} className="px-4 py-2 bg-primary text-white rounded font-bold text-sm">
+                          {isAssigningAdmin ? 'Saving...' : 'Save Access'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showCustomModal && selectedUserForAdmin && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md">
+                  <h3 className="font-bold text-lg mb-4">Assign Custom Admin</h3>
+                  <div className="mb-4">
+                      <p className="text-xs font-bold text-slate-500 uppercase mb-2">Permissions</p>
+                      <div className="grid grid-cols-2 gap-2">
+                          {ADMIN_PERMISSIONS.map(p => (
+                              <label key={p.id} className="flex items-center gap-2 p-2 border rounded text-xs cursor-pointer hover:bg-slate-50">
+                                  <input 
+                                      type="checkbox" 
+                                      checked={customPerms.includes(p.id)}
+                                      onChange={e => {
+                                          if(e.target.checked) setCustomPerms([...customPerms, p.id]);
+                                          else setCustomPerms(customPerms.filter(x => x !== p.id));
+                                      }}
+                                  />
+                                  {p.label}
+                              </label>
+                          ))}
+                      </div>
+                  </div>
+                  <div className="mb-4">
+                      <p className="text-xs font-bold text-slate-500 uppercase mb-2">Scope (Optional)</p>
+                      <select 
+                          multiple 
+                          className="w-full border p-2 rounded text-sm h-24"
+                          value={customMandalams}
+                          onChange={e => setCustomMandalams(Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value as Mandalam))}
+                      >
+                          {MANDALAMS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1">Hold Ctrl/Cmd to select multiple.</p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                      <button onClick={() => setShowCustomModal(false)} className="px-4 py-2 text-slate-600 font-bold text-sm">Cancel</button>
+                      <button onClick={saveAdminAssignment} disabled={isAssigningAdmin} className="px-4 py-2 bg-primary text-white rounded font-bold text-sm">
+                          {isAssigningAdmin ? 'Saving...' : 'Save Role'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* ... (Keep View Proof Modal) ... */}
       {viewProofUrl && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setViewProofUrl(null)}>
@@ -634,11 +894,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
         </div>
       )}
 
-      {/* ... (Keep Reply Modal, Edit Modal, Add User Modal) ... */}
+      {/* ... (Keep Reply Modal - Simplified for Chat flow) ... */}
       {replyMessage && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
               <div className="bg-white w-full max-w-lg rounded-xl shadow-xl p-6">
-                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Reply to {replyMessage.userName}</h3><button onClick={() => setReplyMessage(null)}><X className="w-5 h-5 text-slate-400" /></button></div>
+                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Reply to {resolveUserName(replyMessage.userId, replyMessage.userName)}</h3><button onClick={() => setReplyMessage(null)}><X className="w-5 h-5 text-slate-400" /></button></div>
                   <div className="mb-4 bg-slate-50 p-3 rounded text-sm text-slate-600 italic border border-slate-100">"{replyMessage.content}"</div>
                   <textarea className="w-full p-3 border rounded-lg h-32 text-sm mb-4 outline-none focus:ring-2 focus:ring-primary/20" placeholder="Type your reply here..." value={replyContent} onChange={e => setReplyContent(e.target.value)}/>
                   <div className="flex justify-end gap-2"><button onClick={() => setReplyMessage(null)} className="px-4 py-2 bg-slate-100 rounded text-sm font-bold">Cancel</button><button onClick={handleReplyMessage} className="px-4 py-2 bg-primary text-white rounded text-sm font-bold flex items-center gap-2"><Send className="w-3 h-3" /> Send Reply</button></div>

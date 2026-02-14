@@ -179,52 +179,55 @@ const App: React.FC = () => {
         const freshUsers = await StorageService.getUsers();
         setUsers(freshUsers);
         
-        const cleanId = identifier.trim().toLowerCase();
+        const cleanInput = identifier.trim().toLowerCase();
         
-        // Helper to normalize phone numbers: removes all non-digits, and removes '971' prefix if present
-        // This ensures 0501234567 == +971501234567
-        const normalizePhone = (p: string) => {
-            if(!p) return '';
-            let cleaned = p.replace(/\D/g, ''); // Remove non-digits
-            if (cleaned.startsWith('971')) cleaned = '0' + cleaned.substring(3);
-            if (cleaned.startsWith('00971')) cleaned = '0' + cleaned.substring(5);
-            return cleaned; 
+        // Helper: Extract last 9 digits for robust matching (ignores +971, 00971, 0 leading)
+        const getPhoneSuffix = (p: string) => {
+            if (!p) return '';
+            const digits = p.replace(/\D/g, ''); // Strip non-digits
+            return digits.length >= 9 ? digits.slice(-9) : digits;
         };
 
-        const targetPhone = normalizePhone(cleanId);
+        const targetSuffix = getPhoneSuffix(cleanInput);
 
-        let user = freshUsers.find(u => {
-            // Check Email
-            if (u.email && u.email.toLowerCase() === cleanId) return true;
+        const user = freshUsers.find(u => {
+            // 1. Check Email (Exact match, case insensitive)
+            if (u.email && u.email.toLowerCase().trim() === cleanInput) return true;
             
-            // Check Mobile (Robust)
+            // 2. Check Mobile (Fuzzy match)
             if (u.mobile) {
-                const userPhone = normalizePhone(u.mobile);
-                if (userPhone && userPhone === targetPhone) return true;
+                const userSuffix = getPhoneSuffix(u.mobile);
+                if (userSuffix && userSuffix === targetSuffix) return true;
             }
             return false;
         });
         
-        if (user && user.password === passwordInput) {
-            setCurrentUser(user);
-            localStorage.setItem('vadakara_session_user_id', user.id); 
-            
-            if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
-                setViewMode('ADMIN');
-            } else {
-                setViewMode('USER');
-            }
+        if (user) {
+            // Compare passwords directly
+            // Note: normalizeUser handles fallback to EmiratesID if password field is missing in DB
+            if (user.password === passwordInput) {
+                setCurrentUser(user);
+                localStorage.setItem('vadakara_session_user_id', user.id); 
+                
+                if (user.role === Role.MASTER_ADMIN || user.role !== Role.USER) {
+                    setViewMode('ADMIN');
+                } else {
+                    setViewMode('USER');
+                }
 
-            if (user.isImported) {
-                setIsProfileCompletionOpen(true);
+                if (user.isImported) {
+                    setIsProfileCompletionOpen(true);
+                }
+                setCurrentView('DASHBOARD');
+            } else {
+                alert("Incorrect password. If you registered via the App, try your Emirates ID as the password.");
             }
-            setCurrentView('DASHBOARD');
         } else {
-            alert("Invalid credentials. Please check your mobile/email and password.");
+            alert("User not found. Please check your mobile number or email.");
         }
       } catch (e) {
           console.error(e);
-          alert("Login error.");
+          alert("Login error. Please try again.");
       } finally {
           setIsLoading(false);
       }
@@ -353,12 +356,12 @@ const App: React.FC = () => {
 
     if (viewMode === 'USER') {
         switch (currentView) {
-            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} />;
+            case 'DASHBOARD': return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} messages={messages} />;
             case 'CARD': return <MembershipCard user={currentUser} activeYear={activeYear} />;
             case 'BENEFITS': return <UserBenefits user={currentUser} benefits={benefits} />;
             case 'ACCOUNT': return <AccountSettings user={currentUser} onUpdateUser={handleUpdateUser} />;
             case 'NOTIFICATIONS': return <UserNotifications user={currentUser} notifications={notifications} />;
-            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} />;
+            default: return <UserDashboard user={currentUser} benefits={benefits} onUpdateUser={handleUpdateUser} isLoading={isLoading} activeYear={activeYear} sponsors={sponsors} newsEvents={newsEvents} messages={messages} />;
         }
     } else {
         // Admin View
