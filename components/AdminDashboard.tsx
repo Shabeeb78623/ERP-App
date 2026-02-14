@@ -177,14 +177,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
   // --- HELPER: Resolve User Name ---
   const resolveUserName = (userId: string, fallbackName: string) => {
-      // 1. Try to find the user in the live users list
       const u = users.find(user => user.id === userId);
       if (u) return u.fullName;
-      
-      // 2. If fallback name exists and isn't generic 'Member' or 'User', use it (it might be saved on the message)
-      if (fallbackName && fallbackName !== 'Member' && fallbackName !== 'User' && fallbackName !== 'Unknown') return fallbackName;
-      
-      // 3. Last resort
+      if (fallbackName && fallbackName !== 'Member' && fallbackName !== 'User') return fallbackName;
       return "Unknown Member";
   };
 
@@ -213,7 +208,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           }
       });
 
-      // Sort groups by latest message
       return Object.entries(groups)
           .sort(([, a], [, b]) => b.latestDate.getTime() - a.latestDate.getTime())
           .map(([userId, data]) => ({ userId, ...data }));
@@ -265,12 +259,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const handleRemindUnpaid = async () => { /* ... */ };
   const getUnpaidEmails = () => authorizedUsers.filter(u => u.role === Role.USER && u.paymentStatus !== PaymentStatus.PAID && u.email && u.email.includes('@')).map(u => u.email as string);
   const handleOpenEmailModal = () => { if (getUnpaidEmails().length === 0) { alert("No unpaid members with valid email addresses found."); return; } setShowEmailReminderModal(true); };
+  
   const handleAddBenefitSubmit = () => {
       if(!benefitForm.userId || !benefitForm.amount) return;
       const user = users.find(u => u.id === benefitForm.userId);
       onAddBenefit({ id: `benefit-${Date.now()}`, userId: benefitForm.userId, userName: user?.fullName, regNo: user?.membershipNo, type: benefitForm.type, amount: Number(benefitForm.amount), remarks: benefitForm.remarks, date: new Date().toLocaleDateString() });
       setIsBenefitModalOpen(false); setBenefitForm({ userId: '', type: BenefitType.HOSPITAL, amount: '', remarks: '' });
   };
+
   const handleSendNotification = async () => {
       if (!notifTitle || !notifMessage) return alert("Enter title and message");
       setSendingNotif(true);
@@ -292,32 +288,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       } catch (e) { alert("Failed to send reply."); console.error(e); }
   };
   
-  // --- ROBUST ADMIN ASSIGNMENT ---
   const handleAssignAdmin = async (user: User, role: Role) => {
-      // Logic for opening modals
-      if (role === Role.MANDALAM_ADMIN) { 
-          setSelectedUserForAdmin(user); 
-          setAssignMandalamSel(user.assignedMandalams || [user.mandalam]); 
-          setShowMandalamModal(true); 
-      } 
-      else if (role === Role.CUSTOM_ADMIN) { 
-          setSelectedUserForAdmin(user); 
-          setCustomPerms(user.permissions || []); 
-          setCustomMandalams(user.assignedMandalams || []); 
-          setShowCustomModal(true); 
-      } 
+      if (role === Role.MANDALAM_ADMIN) { setSelectedUserForAdmin(user); setAssignMandalamSel(user.assignedMandalams || [user.mandalam]); setShowMandalamModal(true); } 
+      else if (role === Role.CUSTOM_ADMIN) { setSelectedUserForAdmin(user); setCustomPerms(user.permissions || []); setCustomMandalams(user.assignedMandalams || []); setShowCustomModal(true); } 
       else { 
-          // Direct assignment for MASTER_ADMIN or USER
           if(confirm(`${role === Role.USER ? "Revoke Admin Rights" : "Grant Master Admin"} for ${user.fullName}?`)) { 
               setIsAssigningAdmin(true);
-              try {
-                  await StorageService.updateUser(user.id, { role: role, assignedMandalams: [], permissions: [] }); 
-                  alert("User role updated successfully. The change is effective immediately on Web and App."); 
-              } catch (e) {
-                  alert("Failed to update role.");
-              } finally {
-                  setIsAssigningAdmin(false);
-              }
+              try { await StorageService.updateUser(user.id, { role: role, assignedMandalams: [], permissions: [] }); alert("User role updated successfully."); } catch (e) { alert("Failed."); } finally { setIsAssigningAdmin(false); }
           } 
       }
   };
@@ -328,29 +305,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       if (!selectedUserForAdmin) return;
       setIsAssigningAdmin(true);
       try {
-        if (showMandalamModal) { 
-            await StorageService.updateUser(selectedUserForAdmin.id, { 
-                role: Role.MANDALAM_ADMIN, 
-                assignedMandalams: assignMandalamSel 
-            }); 
-        } else if (showCustomModal) { 
-            await StorageService.updateUser(selectedUserForAdmin.id, { 
-                role: Role.CUSTOM_ADMIN, 
-                permissions: customPerms, 
-                assignedMandalams: customMandalams 
-            }); 
-        }
-        alert("Admin privileges granted successfully.");
-        // Close Modals
-        setShowMandalamModal(false); 
-        setShowCustomModal(false); 
-        setSelectedUserForAdmin(null);
-      } catch (e) { 
-          alert("Failed to save assignment. Please try again."); 
-          console.error(e);
-      } finally {
-          setIsAssigningAdmin(false);
-      }
+        if (showMandalamModal) { await StorageService.updateUser(selectedUserForAdmin.id, { role: Role.MANDALAM_ADMIN, assignedMandalams: assignMandalamSel }); } 
+        else if (showCustomModal) { await StorageService.updateUser(selectedUserForAdmin.id, { role: Role.CUSTOM_ADMIN, permissions: customPerms, assignedMandalams: customMandalams }); }
+        alert("Admin privileges granted."); setShowMandalamModal(false); setShowCustomModal(false); setSelectedUserForAdmin(null);
+      } catch (e) { alert("Failed."); } finally { setIsAssigningAdmin(false); }
   };
 
   const handleImportUsers = async () => { /* ... */ };
@@ -359,41 +317,61 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const handleStartNewYear = async () => {
       const year = parseInt(newYearInput, 10);
       if(isNaN(year) || year < 2024 || year > 2050) return alert("Invalid year");
-      if(!confirm(`Start Year ${year}? This will archive current data and reset payment status for all members.`)) return;
+      if(!confirm(`Start Year ${year}?`)) return;
       setIsProcessingYear(true);
-      try { 
-          await StorageService.createNewYear(year); 
-          await StorageService.resetAllUserPayments(year); 
-          alert(`Year ${year} has been successfully initialized.`); 
-          setNewYearInput(String(year + 1)); 
-      } catch (e: any) { 
-          alert("Failed to start new year: " + e.message); 
-      } finally { 
-          setIsProcessingYear(false); 
-      }
+      try { await StorageService.createNewYear(year); await StorageService.resetAllUserPayments(year); alert(`Year ${year} started.`); setNewYearInput(String(year + 1)); } catch (e: any) { alert("Failed."); } finally { setIsProcessingYear(false); }
   };
 
   const handleDeleteYear = async (year: number) => { /* ... */ };
   const saveEditUser = async () => { if (!editUserForm.id) return; await onUpdateUser(editUserForm.id, { ...editUserForm }); setShowEditUserModal(false); setEditUserForm({}); };
-  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
-  const handleSponsorUpload = async (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
-  const handleNewsImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... */ };
+  
+  // --- UPLOAD HANDLERS ---
+  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if(!file) return;
+      setIsUploadingTemplate(true);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+          const base64 = reader.result as string;
+          const currentConfig = cardConfig || { front: { templateImage: '', fields: [], width: 800, height: 500 }, back: { templateImage: '', fields: [], width: 800, height: 500 } };
+          const img = new Image();
+          img.src = base64;
+          img.onload = async () => {
+              const updatedSide = { ...currentConfig[activeCardSide], templateImage: base64, width: img.width, height: img.height };
+              const newConfig = { ...currentConfig, [activeCardSide]: updatedSide };
+              setCardConfig(newConfig);
+              await StorageService.saveCardConfig(newConfig);
+              setIsUploadingTemplate(false);
+          };
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleSponsorUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !sponsorForm.name) { alert("Please enter sponsor name first."); return; }
+      setIsUploadingContent(true);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+          await StorageService.addSponsor({ id: `sponsor-${Date.now()}`, name: sponsorForm.name!, logoUrl: reader.result as string, website: sponsorForm.website || '' });
+          setSponsorForm({}); setIsUploadingContent(false);
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleNewsImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onloadend = () => setNewsForm({ ...newsForm, imageUrl: reader.result as string });
+      reader.readAsDataURL(file);
+  };
   
   const handleAddNews = async () => {
       if(!newsForm.title || !newsForm.description) return alert("Title and Description required");
       setIsUploadingContent(true);
-      await StorageService.addNewsEvent({ 
-          id: `news-${Date.now()}`, 
-          title: newsForm.title!, 
-          description: newsForm.description!, 
-          type: newsForm.type || 'NEWS', 
-          date: newsForm.date || new Date().toLocaleDateString(), 
-          imageUrl: newsForm.imageUrl, 
-          location: newsForm.location, 
-          link: newsForm.link 
-      });
-      setNewsForm({ type: 'NEWS', date: new Date().toISOString().split('T')[0] }); 
-      setIsUploadingContent(false);
+      await StorageService.addNewsEvent({ id: `news-${Date.now()}`, title: newsForm.title!, description: newsForm.description!, type: newsForm.type || 'NEWS', date: newsForm.date || new Date().toLocaleDateString(), imageUrl: newsForm.imageUrl, location: newsForm.location, link: newsForm.link });
+      setNewsForm({ type: 'NEWS', date: new Date().toISOString().split('T')[0] }); setIsUploadingContent(false);
   };
 
   const addCardVariable = async () => {
@@ -413,8 +391,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       setSelectedVariable('');
   };
 
-  const updateCardField = async (id: string, updates: Partial<CardField>) => { /* ... */ };
-  const deleteCardField = async (id: string) => { /* ... */ };
+  const updateCardField = async (id: string, updates: Partial<CardField>) => { 
+      if (!cardConfig) return;
+      const currentSide = cardConfig[activeCardSide];
+      const newFields = currentSide.fields.map(f => f.id === id ? { ...f, ...updates } : f);
+      const newConfig = { ...cardConfig, [activeCardSide]: { ...currentSide, fields: newFields } };
+      setCardConfig(newConfig);
+      await StorageService.saveCardConfig(newConfig);
+  };
+
+  const deleteCardField = async (id: string) => {
+      if (!cardConfig) return;
+      const currentSide = cardConfig[activeCardSide];
+      const newFields = currentSide.fields.filter(f => f.id !== id);
+      const newConfig = { ...cardConfig, [activeCardSide]: { ...currentSide, fields: newFields } };
+      setCardConfig(newConfig);
+      await StorageService.saveCardConfig(newConfig);
+  };
+
   const handleDragStart = (e: React.MouseEvent, id: string) => { e.stopPropagation(); e.preventDefault(); setDraggedFieldId(id); };
 
   const StatCard = ({ label, value, colorClass }: { label: string, value: string | number, colorClass: string }) => (
@@ -547,7 +541,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                           <div key={s.id} className="relative group border rounded-lg p-2 flex flex-col items-center gap-2 hover:border-pink-200 transition-colors">
                               <img src={s.logoUrl} className="h-12 w-auto object-contain" />
                               <p className="text-xs font-bold text-center truncate w-full">{s.name}</p>
-                              <button onClick={() => { if(confirm("Remove sponsor?")) StorageService.deleteSponsor(s.id); }} className="absolute top-1 right-1 p-1 bg-red-100 text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
+                              <button onClick={() => { if(confirm("Remove sponsor?")) StorageService.deleteSponsor(s.id); }} className="absolute top-1 right-1 p-1 bg-red-100 text-red-500 rounded hover:bg-red-200 shadow-sm transition-opacity z-10"><X className="w-3 h-3" /></button>
                           </div>
                       ))}
                       {sponsors.length === 0 && <p className="text-xs text-slate-400 col-span-3">No sponsors added.</p>}
@@ -758,9 +752,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           <div className="space-y-6"><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><div className="flex justify-between items-start mb-6"><div><h3 className="text-xl font-bold text-slate-900 flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-primary" /> ID Card Designer</h3><p className="text-slate-500 text-sm mt-1">Upload distinct designs for Card 1 (Front/Main) and Card 2 (Back/Certificate).</p></div><div className="flex gap-4"><div className="bg-slate-100 rounded-lg p-1 flex"><button onClick={() => setActiveCardSide('front')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'front' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 1</button><button onClick={() => setActiveCardSide('back')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeCardSide === 'back' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Card Design 2</button></div><label className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-bold rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm"><ImagePlus className="w-4 h-4" />{isUploadingTemplate ? 'Uploading...' : 'Upload Template'}<input type="file" accept="image/*" className="hidden" onChange={handleTemplateUpload} disabled={isUploadingTemplate} /></label></div></div><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-slate-100 rounded-xl p-4 border border-slate-200 flex items-center justify-center min-h-[400px] select-none relative overflow-hidden">{cardConfig && cardConfig[activeCardSide].templateImage ? (<div className="relative shadow-2xl inline-block"><img ref={cardImageRef} src={cardConfig[activeCardSide].templateImage} alt="Card Template" className="max-w-full h-auto rounded-lg pointer-events-none" />{cardConfig[activeCardSide].fields.map(field => (<div key={field.id} onMouseDown={(e) => handleDragStart(e, field.id)} style={{ position: 'absolute', left: `${field.x}%`, top: `${field.y}%`, transform: 'translate(-50%, -50%)', color: field.color, fontSize: `${field.fontSize}px`, fontWeight: field.fontWeight, whiteSpace: 'nowrap', cursor: 'move', border: draggedFieldId === field.id ? '2px dashed #3b82f6' : '1px dashed transparent', padding: '4px', zIndex: 10, userSelect: 'none' }} className="hover:border-slate-400 hover:bg-white/20 transition-all rounded">{field.type === 'QR' ? (<div className="w-16 h-16 bg-white flex items-center justify-center border border-slate-300"><QrCode className="w-10 h-10 text-slate-800" /></div>) : field.sampleValue}</div>))}</div>) : (<div className="text-center text-slate-400"><LayoutTemplate className="w-16 h-16 mx-auto mb-4 opacity-20" /><p>No template uploaded for {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}.</p></div>)}</div><div className="space-y-6"><div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><h4 className="font-bold text-slate-800 text-sm mb-3">Add Variable to {activeCardSide === 'front' ? 'Card 1' : 'Card 2'}</h4><div className="flex gap-2"><select className="flex-1 p-2 border border-slate-200 rounded-lg text-sm outline-none" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)}><option value="">-- Select Variable --</option><option value="membershipNo">Registration No (ID)</option><option value="registrationDate">Joined Date</option><option value="qr_code_verify" className="font-bold">🔳 QR Code (Verification)</option><optgroup label="Registration Questions">{questions.map(q => (<option key={q.id} value={q.id}>{q.label}</option>))}</optgroup></select><button onClick={addCardVariable} disabled={!selectedVariable} className="px-3 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-50">Add</button></div></div><div className="space-y-3 max-h-[400px] overflow-y-auto">{cardConfig?.[activeCardSide].fields.map(field => (<div key={field.id} className="bg-white p-3 rounded-lg border border-slate-200"><div className="flex justify-between items-center mb-1"><span className="font-bold text-xs flex items-center gap-1 truncate max-w-[150px]">{field.type === 'QR' && <QrCode className="w-3 h-3 text-blue-500" />}{field.label}</span><button onClick={() => deleteCardField(field.id)} className="text-red-400"><X className="w-3 h-3"/></button></div><div className="grid grid-cols-2 gap-2 mb-2 bg-slate-50 p-2 rounded"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">X Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.x)} onChange={(e) => updateCardField(field.id, { x: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Y Pos (%)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={Math.round(field.y)} onChange={(e) => updateCardField(field.id, { y: Number(e.target.value) })} /></div></div>{field.type !== 'QR' && (<div className="grid grid-cols-2 gap-2"><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Size (px)</label><input type="number" className="w-full text-xs border rounded p-1 outline-none focus:border-primary" value={field.fontSize} onChange={(e) => updateCardField(field.id, { fontSize: Number(e.target.value) })} /></div><div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Color</label><input type="color" className="w-full h-7 border rounded p-0 cursor-pointer" value={field.color} onChange={(e) => updateCardField(field.id, { color: e.target.value })} /></div></div>)}</div>))}</div></div></div></div></div>
       )}
 
-      {/* ... (Keep modals) ... */}
-      
-      {/* --- ADMIN ASSIGN MODALS (Fix: Ensure they save correctly) --- */}
+      {/* --- ADMIN ASSIGN MODALS --- */}
       {showMandalamModal && selectedUserForAdmin && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white rounded-xl p-6 w-full max-w-sm">
@@ -833,6 +825,82 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                   </div>
               </div>
           </div>
+      )}
+
+      {/* --- BENEFIT MODAL (RESTORED) --- */}
+      {isBenefitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+                <h3 className="font-bold text-lg">Add New Benefit</h3>
+                
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Select Member</label>
+                    <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                        <input 
+                            className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm"
+                            placeholder="Search by name or reg no..."
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    {searchTerm && (
+                        <div className="mt-2 max-h-40 overflow-y-auto border rounded bg-slate-50">
+                            {filteredList.slice(0, 5).map(u => (
+                                <div 
+                                    key={u.id} 
+                                    onClick={() => { setBenefitForm({...benefitForm, userId: u.id}); setSearchTerm(''); }}
+                                    className={`p-2 text-xs cursor-pointer hover:bg-blue-50 ${benefitForm.userId === u.id ? 'bg-blue-100 text-primary font-bold' : ''}`}
+                                >
+                                    {u.fullName} ({u.membershipNo})
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {benefitForm.userId && (
+                        <div className="mt-2 text-xs text-emerald-600 font-bold bg-emerald-50 p-2 rounded">
+                            Selected: {users.find(u => u.id === benefitForm.userId)?.fullName}
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Benefit Type</label>
+                        <select 
+                            className="w-full p-2 border rounded text-sm bg-white"
+                            value={benefitForm.type}
+                            onChange={(e) => setBenefitForm({...benefitForm, type: e.target.value as BenefitType})}
+                        >
+                            {Object.values(BenefitType).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Amount (AED)</label>
+                        <input 
+                            type="number" 
+                            className="w-full p-2 border rounded text-sm"
+                            value={benefitForm.amount}
+                            onChange={(e) => setBenefitForm({...benefitForm, amount: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Remarks</label>
+                    <input 
+                        className="w-full p-2 border rounded text-sm"
+                        placeholder="Details..."
+                        value={benefitForm.remarks}
+                        onChange={(e) => setBenefitForm({...benefitForm, remarks: e.target.value})}
+                    />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                    <button onClick={() => setIsBenefitModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded text-sm font-bold">Cancel</button>
+                    <button onClick={handleAddBenefitSubmit} className="px-4 py-2 bg-primary text-white rounded text-sm font-bold">Add Benefit</button>
+                </div>
+            </div>
+        </div>
       )}
 
       {/* ... (Keep View Proof Modal) ... */}
