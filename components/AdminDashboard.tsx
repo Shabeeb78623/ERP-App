@@ -88,6 +88,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   const [sponsorForm, setSponsorForm] = useState<Partial<Sponsor>>({});
   const [newsForm, setNewsForm] = useState<Partial<NewsEvent>>({ type: 'NEWS', date: new Date().toISOString().split('T')[0] });
   const [isUploadingContent, setIsUploadingContent] = useState(false);
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
 
   // Data States
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -139,7 +140,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   // Card Management
   const [cardConfig, setCardConfig] = useState<CardConfig | null>(null);
   const [activeCardSide, setActiveCardSide] = useState<'front' | 'back'>('front');
-  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
   const [selectedVariable, setSelectedVariable] = useState<string>(''); 
   const cardImageRef = useRef<HTMLImageElement>(null);
   const [draggedFieldId, setDraggedFieldId] = useState<string | null>(null);
@@ -311,7 +311,107 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       } catch (e) { alert("Failed."); } finally { setIsAssigningAdmin(false); }
   };
 
-  const handleImportUsers = async () => { /* ... */ };
+  const handleImportUsers = async () => {
+      if (!importFile) return;
+      setIsImporting(true);
+      setImportProgress(0);
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+          const text = e.target?.result as string;
+          if (!text) {
+              setIsImporting(false);
+              return;
+          }
+
+          const lines = text.split(/\r?\n/);
+          const usersToImport: User[] = [];
+          const currentYear = new Date().getFullYear();
+
+          // Skip header if it exists (simple check if first row contains "Name" or similar)
+          const startIndex = lines[0].toLowerCase().includes('name') ? 1 : 0;
+
+          for (let i = startIndex; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (!line) continue;
+              
+              // Basic CSV split - improvements possible for robust CSV
+              const parts = line.split(',').map(p => p.trim());
+              
+              if (parts.length < 3) continue; // Minimum: Name, EID, Mobile
+
+              const fullName = parts[0];
+              const emiratesId = parts[1];
+              const mobile = parts[2];
+              const emirateStr = parts[3] || 'Dubai';
+              const mandalamStr = parts[4] || 'Vatakara';
+              const dateStr = parts[5];
+
+              // Map to Enums
+              const emirate = Object.values(Emirate).find(e => e.toLowerCase() === emirateStr.toLowerCase()) || Emirate.DUBAI;
+              const mandalam = Object.values(Mandalam).find(m => m.toLowerCase() === mandalamStr.toLowerCase()) || Mandalam.VATAKARA;
+
+              // Generate ID
+              const id = `user-imp-${Date.now()}-${i}`;
+              
+              const newUser: User = {
+                  id,
+                  fullName,
+                  emiratesId,
+                  mobile,
+                  whatsapp: mobile,
+                  email: '', // Optional
+                  role: Role.USER,
+                  status: UserStatus.APPROVED, // Imported users are considered approved
+                  paymentStatus: PaymentStatus.UNPAID, // Need to verify payment
+                  mandalam: mandalam as Mandalam,
+                  emirate: emirate as Emirate,
+                  registrationYear: currentYear,
+                  photoUrl: '',
+                  membershipNo: '', // Will assign below
+                  registrationDate: dateStr || new Date().toLocaleDateString(),
+                  isImported: true,
+                  password: emiratesId, // Set EID as default password
+                  source: 'IMPORT'
+              };
+              usersToImport.push(newUser);
+          }
+
+          if (usersToImport.length === 0) {
+              alert("No valid users found in CSV.");
+              setIsImporting(false);
+              return;
+          }
+
+          // Generate Membership Numbers
+          try {
+             // We need to fetch the last sequence first.
+             const startSeq = await StorageService.getNextSequence(currentYear);
+             
+             usersToImport.forEach((u, index) => {
+                 const seq = startSeq + index;
+                 u.membershipNo = `${currentYear}${seq.toString().padStart(4, '0')}`;
+             });
+
+             // Now save users
+             await StorageService.addUsers(usersToImport, (count) => {
+                 setImportProgress(Math.round((count / usersToImport.length) * 100));
+             });
+
+             alert(`Successfully imported ${usersToImport.length} users.`);
+             setImportFile(null);
+          } catch (e: any) {
+              console.error(e);
+              alert("Import failed: " + e.message);
+          } finally {
+              setIsImporting(false);
+              setImportProgress(0);
+          }
+      };
+      
+      reader.readAsText(importFile);
+  };
+
   const handleAddNewUser = async () => { /* ... */ };
   
   const handleStartNewYear = async () => {
@@ -729,7 +829,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
 
       {/* ... (Keep other tabs) ... */}
       {activeTab === 'Import Users' && (
-          <div className="bg-white p-8 rounded-xl border border-slate-200 text-center max-w-2xl mx-auto"><div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto mb-4"><FileUp className="w-8 h-8" /></div><h3 className="text-xl font-bold mb-2">Bulk Import Users</h3><p className="text-slate-500 mb-6 text-sm">Upload a CSV file with columns: Name, EmiratesID, Mobile, Emirate, Mandalam, JoinDate(optional).</p><div className="mb-6 flex justify-center"><input type="file" accept=".csv" onChange={e => setImportFile(e.target.files?.[0] || null)} /></div><button onClick={handleImportUsers} disabled={!importFile || isImporting} className="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark disabled:opacity-50">{isImporting ? `Importing... ${importProgress}` : 'Start Import'}</button></div>
+          <div className="bg-white p-8 rounded-xl border border-slate-200 text-center max-w-2xl mx-auto"><div className="w-16 h-16 bg-blue-50 text-primary rounded-full flex items-center justify-center mx-auto mb-4"><FileUp className="w-8 h-8" /></div><h3 className="text-xl font-bold mb-2">Bulk Import Users</h3><p className="text-slate-500 mb-6 text-sm">Upload a CSV file with columns: Name, EmiratesID, Mobile, Emirate, Mandalam, JoinDate(optional).</p><div className="mb-6 flex justify-center"><input type="file" accept=".csv" onChange={e => setImportFile(e.target.files?.[0] || null)} /></div><button onClick={handleImportUsers} disabled={!importFile || isImporting} className="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary-dark disabled:opacity-50">{isImporting ? `Importing... ${importProgress}%` : 'Start Import'}</button></div>
       )}
 
       {/* ... (Keep other tabs) ... */}
