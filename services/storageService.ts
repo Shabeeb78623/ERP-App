@@ -117,6 +117,24 @@ const normalizeUser = (doc: any): User => {
         return found || defaultVal;
     };
 
+    // Robust Status Check
+    let status = UserStatus.PENDING;
+    if (data.status) {
+        const s = data.status.toString().toUpperCase();
+        if (Object.values(UserStatus).includes(s as UserStatus)) {
+            status = s as UserStatus;
+        }
+    }
+
+    // Robust Payment Status Check
+    let paymentStatus = PaymentStatus.UNPAID;
+    if (data.paymentStatus) {
+        const s = data.paymentStatus.toString().toUpperCase();
+        if (Object.values(PaymentStatus).includes(s as PaymentStatus)) {
+            paymentStatus = s as PaymentStatus;
+        }
+    }
+
     return {
         id: doc.id,
         fullName: realFullName || 'Unknown Member',
@@ -126,8 +144,8 @@ const normalizeUser = (doc: any): User => {
         emiratesId: eid,
         mandalam: matchEnum(Mandalam, rawMandalam, Mandalam.VATAKARA) as Mandalam,
         emirate: matchEnum(Emirate, rawEmirate, Emirate.DUBAI) as Emirate,
-        status: (Object.values(UserStatus).includes(data.status) ? data.status : UserStatus.PENDING) as UserStatus,
-        paymentStatus: (Object.values(PaymentStatus).includes(data.paymentStatus) ? data.paymentStatus : PaymentStatus.UNPAID) as PaymentStatus,
+        status: status,
+        paymentStatus: paymentStatus,
         role: realRole,
         registrationYear: Number(data.registrationYear) || new Date().getFullYear(),
         photoUrl: safeStr(data.photoUrl) || safeStr(data.photo) || safeStr(data.image) || safeStr(data.profilePic),
@@ -237,7 +255,7 @@ export const StorageService = {
                   content: normalizeMessageContent(d), 
                   date: d.date || new Date().toISOString(),
                   status: d.status || 'NEW',
-                  adminReply: normalizeMessageContent({ content: d.adminReply }) 
+                  adminReply: normalizeMessageContent({ content: d.adminReply || d.reply || d.response }) 
               } as Message;
           });
           msgs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -370,7 +388,6 @@ export const StorageService = {
             }
 
             const rawData = userSnap.data();
-            // Clone updates to avoid reference mutation issues
             const safeUpdates: any = { ...updates };
 
             // 1. Generate Membership Number if missing
@@ -386,23 +403,20 @@ export const StorageService = {
                 safeUpdates.membershipNo = membershipNo;
                 safeUpdates.registrationYear = year;
                 
-                // Safe counter update
                 transaction.set(counterRef, { lastSequence: nextSeq }, { merge: true });
             }
 
-            // 2. Flatten q_* fields into main profile fields (safely)
+            // 2. Flatten q_* fields
             const assign = (key: string, val: any) => { if(val) safeUpdates[key] = val; };
 
             if ((!rawData.fullName || rawData.fullName === 'New User') && rawData.q_fullname) {
                 assign('fullName', rawData.q_fullname);
             }
-            // Prioritize q_ fields if main fields are missing or placeholders
             if ((!rawData.mobile || rawData.mobile === '0000000000') && rawData.q_mobile) assign('mobile', rawData.q_mobile);
             if (!rawData.email && rawData.q_email) assign('email', rawData.q_email);
             if (!rawData.emiratesId && rawData.q_eid) assign('emiratesId', rawData.q_eid);
             if (!rawData.password && rawData.q_password) assign('password', rawData.q_password);
             
-            // Standard mapping
             if(rawData.q_addr_uae) assign('addressUAE', rawData.q_addr_uae);
             if(rawData.q_addr_ind) assign('addressIndia', rawData.q_addr_ind);
             if(rawData.q_nominee) assign('nominee', rawData.q_nominee);
@@ -474,8 +488,14 @@ export const StorageService = {
 
   sendMessage: async (m: Message) => { 
       // Sanitize message to avoid undefined values
-      const msgData = { ...m };
+      const msgData: any = { ...m };
       if (msgData.adminReply === undefined) msgData.adminReply = '';
+      
+      // Add compatibility fields for external App
+      msgData.text = m.content; 
+      msgData.sender = 'user';
+      msgData.timestamp = serverTimestamp(); // Use server timestamp for correct sorting in App
+      
       await setDoc(doc(db, MESSAGES_COLLECTION, m.id), msgData); 
   },
   markMessageReplied: async (id: string, reply: string) => { 
@@ -485,7 +505,9 @@ export const StorageService = {
           // Compatibility fields for external apps
           reply: reply,
           response: reply,
-          repliedAt: new Date().toISOString()
+          repliedAt: new Date().toISOString(),
+          read: true, // Mark as read/handled
+          lastUpdated: serverTimestamp() // Force update timestamp
       }); 
   },
 
