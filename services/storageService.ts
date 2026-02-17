@@ -365,45 +365,53 @@ export const StorageService = {
     if (updates.status === UserStatus.APPROVED) {
         await runTransaction(db, async (transaction) => {
             const userSnap = await transaction.get(userRef);
-            if (userSnap.exists()) {
-                const rawData = userSnap.data();
-                
-                // 1. Generate Membership Number if missing
-                if (!rawData.membershipNo) {
-                    const year = rawData.registrationYear || new Date().getFullYear();
-                    const counterRef = doc(db, COUNTERS_COLLECTION, `year_${year}`);
-                    const counterDoc = await transaction.get(counterRef);
-                    let nextSeq = 1;
-                    if (counterDoc.exists()) {
-                        nextSeq = (counterDoc.data().lastSequence || 0) + 1;
-                    }
-                    const membershipNo = `${year}${nextSeq.toString().padStart(4, '0')}`;
-                    updates.membershipNo = membershipNo;
-                    updates.registrationYear = year;
-                    
-                    // CRITICAL FIX: Use set with merge instead of update, 
-                    // because if year_2026 doesn't exist, update() will throw an error.
-                    transaction.set(counterRef, { lastSequence: nextSeq }, { merge: true });
-                }
-
-                // 2. Flatten q_* fields into main profile fields
-                if ((!rawData.fullName || rawData.fullName === 'New User') && rawData.q_fullname) {
-                    updates.fullName = rawData.q_fullname;
-                }
-                if (!rawData.mobile && rawData.q_mobile) updates.mobile = rawData.q_mobile;
-                if (!rawData.email && rawData.q_email) updates.email = rawData.q_email;
-                if (!rawData.emiratesId && rawData.q_eid) updates.emiratesId = rawData.q_eid;
-                if (!rawData.password && rawData.q_password) updates.password = rawData.q_password;
-                
-                if(rawData.q_addr_uae) updates.addressUAE = rawData.q_addr_uae;
-                if(rawData.q_addr_ind) updates.addressIndia = rawData.q_addr_ind;
-                if(rawData.q_nominee) updates.nominee = rawData.q_nominee;
-                if(rawData.q_relation) updates.relation = rawData.q_relation;
-                if(rawData.q_rec) updates.recommendedBy = rawData.q_rec;
-                
-                if(rawData.role === 'member') updates.role = Role.USER;
+            if (!userSnap.exists()) {
+                throw new Error("User does not exist!");
             }
-            transaction.set(userRef, updates, { merge: true });
+
+            const rawData = userSnap.data();
+            // Clone updates to avoid reference mutation issues
+            const safeUpdates: any = { ...updates };
+
+            // 1. Generate Membership Number if missing
+            if (!rawData.membershipNo) {
+                const year = rawData.registrationYear || new Date().getFullYear();
+                const counterRef = doc(db, COUNTERS_COLLECTION, `year_${year}`);
+                const counterDoc = await transaction.get(counterRef);
+                let nextSeq = 1;
+                if (counterDoc.exists()) {
+                    nextSeq = (counterDoc.data().lastSequence || 0) + 1;
+                }
+                const membershipNo = `${year}${nextSeq.toString().padStart(4, '0')}`;
+                safeUpdates.membershipNo = membershipNo;
+                safeUpdates.registrationYear = year;
+                
+                // Safe counter update
+                transaction.set(counterRef, { lastSequence: nextSeq }, { merge: true });
+            }
+
+            // 2. Flatten q_* fields into main profile fields (safely)
+            const assign = (key: string, val: any) => { if(val) safeUpdates[key] = val; };
+
+            if ((!rawData.fullName || rawData.fullName === 'New User') && rawData.q_fullname) {
+                assign('fullName', rawData.q_fullname);
+            }
+            // Prioritize q_ fields if main fields are missing or placeholders
+            if ((!rawData.mobile || rawData.mobile === '0000000000') && rawData.q_mobile) assign('mobile', rawData.q_mobile);
+            if (!rawData.email && rawData.q_email) assign('email', rawData.q_email);
+            if (!rawData.emiratesId && rawData.q_eid) assign('emiratesId', rawData.q_eid);
+            if (!rawData.password && rawData.q_password) assign('password', rawData.q_password);
+            
+            // Standard mapping
+            if(rawData.q_addr_uae) assign('addressUAE', rawData.q_addr_uae);
+            if(rawData.q_addr_ind) assign('addressIndia', rawData.q_addr_ind);
+            if(rawData.q_nominee) assign('nominee', rawData.q_nominee);
+            if(rawData.q_relation) assign('relation', rawData.q_relation);
+            if(rawData.q_rec) assign('recommendedBy', rawData.q_rec);
+            
+            if(rawData.role === 'member') safeUpdates.role = Role.USER;
+
+            transaction.set(userRef, safeUpdates, { merge: true });
         });
     } else {
         await setDoc(userRef, updates, { merge: true });
@@ -471,7 +479,14 @@ export const StorageService = {
       await setDoc(doc(db, MESSAGES_COLLECTION, m.id), msgData); 
   },
   markMessageReplied: async (id: string, reply: string) => { 
-      await updateDoc(doc(db, MESSAGES_COLLECTION, id), { status: 'REPLIED', adminReply: reply }); 
+      await updateDoc(doc(db, MESSAGES_COLLECTION, id), { 
+          status: 'REPLIED', 
+          adminReply: reply,
+          // Compatibility fields for external apps
+          reply: reply,
+          response: reply,
+          repliedAt: new Date().toISOString()
+      }); 
   },
 
   addSponsor: async (s: Sponsor) => { 
