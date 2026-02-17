@@ -82,48 +82,91 @@ const normalizeUser = (doc: any): User => {
         return String(val);
     };
 
-    // Password Fallback Logic for App Users
-    const eid = safeStr(data.emiratesId);
-    let pwd = safeStr(data.password);
-    // If password is missing but Emirates ID exists, use Emirates ID as default password
-    if (!pwd && eid) {
-        pwd = eid;
+    // --- MAPPING LOGIC FOR EXTERNAL APP DATA ---
+    // The mobile app writes data to q_* fields and sets name to "New User". 
+    // We must prioritize the specific q_ fields if the main fields are generic/empty.
+
+    let realFullName = safeStr(data.fullName);
+    if ((!realFullName || realFullName === 'New User') && data.q_fullname) {
+        realFullName = safeStr(data.q_fullname);
     }
+
+    let realMobile = safeStr(data.mobile);
+    if ((!realMobile || realMobile === '0000000000') && data.q_mobile) {
+        realMobile = safeStr(data.q_mobile);
+    }
+
+    let realEmail = safeStr(data.email);
+    if (!realEmail && data.q_email) {
+        realEmail = safeStr(data.q_email);
+    }
+
+    const eid = safeStr(data.emiratesId) || safeStr(data.q_eid);
+    
+    // Password Logic: 
+    // 1. Check explicit password field
+    // 2. Check q_password (from app form)
+    // 3. Fallback to Emirates ID
+    let pwd = safeStr(data.password);
+    if (!pwd && data.q_password) pwd = safeStr(data.q_password);
+    if (!pwd && eid) pwd = eid;
+
+    // Role Mapping: App uses "member", Web uses "USER"
+    let realRole = Role.USER;
+    if (data.role === 'MASTER_ADMIN') realRole = Role.MASTER_ADMIN;
+    else if (data.role === 'MANDALAM_ADMIN') realRole = Role.MANDALAM_ADMIN;
+    else if (data.role === 'CUSTOM_ADMIN') realRole = Role.CUSTOM_ADMIN;
+    // Treat 'member' (app) or anything else as USER
+    
+    // Mandalam/Emirate Mapping (Handle raw strings from app)
+    const rawMandalam = data.mandalam || data.q_mandalam;
+    const rawEmirate = data.emirate || data.q_emirate;
+
+    // Helper to match enum case-insensitively
+    const matchEnum = (enumObj: any, val: string, defaultVal: string) => {
+        if (!val) return defaultVal;
+        const normalized = val.toString().toLowerCase().trim().replace(/_/g, ' '); // Handle "ABU_DHABI" vs "Abu Dhabi"
+        const found = Object.values(enumObj).find((e: any) => 
+            e.toString().toLowerCase().replace(/_/g, ' ') === normalized
+        );
+        return found || defaultVal;
+    };
 
     return {
         id: doc.id,
-        fullName: safeStr(data.fullName) || 'Unknown Member',
-        email: safeStr(data.email),
-        mobile: safeStr(data.mobile),
-        whatsapp: safeStr(data.whatsapp) || safeStr(data.mobile),
+        fullName: realFullName || 'Unknown Member',
+        email: realEmail,
+        mobile: realMobile,
+        whatsapp: safeStr(data.whatsapp) || safeStr(data.q_whatsapp) || realMobile,
         emiratesId: eid,
         
-        // Enums with fallback to prevent undefined
-        mandalam: (Object.values(Mandalam).includes(data.mandalam) ? data.mandalam : Mandalam.VATAKARA) as Mandalam,
-        emirate: (Object.values(Emirate).includes(data.emirate) ? data.emirate : Emirate.DUBAI) as Emirate,
+        // Enums with robust fallback
+        mandalam: matchEnum(Mandalam, rawMandalam, Mandalam.VATAKARA) as Mandalam,
+        emirate: matchEnum(Emirate, rawEmirate, Emirate.DUBAI) as Emirate,
         
         status: (Object.values(UserStatus).includes(data.status) ? data.status : UserStatus.PENDING) as UserStatus,
         paymentStatus: (Object.values(PaymentStatus).includes(data.paymentStatus) ? data.paymentStatus : PaymentStatus.UNPAID) as PaymentStatus,
-        role: (Object.values(Role).includes(data.role) ? data.role : Role.USER) as Role,
+        role: realRole,
         
         registrationYear: Number(data.registrationYear) || new Date().getFullYear(),
-        // Check multiple fields for photo to support different app versions
+        
+        // Check multiple fields for photo
         photoUrl: safeStr(data.photoUrl) || safeStr(data.photo) || safeStr(data.image) || safeStr(data.profilePic),
         membershipNo: safeStr(data.membershipNo),
         registrationDate: safeStr(data.registrationDate) || new Date().toLocaleDateString(),
         
-        // Complex fields
-        addressUAE: safeStr(data.addressUAE),
-        addressIndia: safeStr(data.addressIndia),
-        nominee: safeStr(data.nominee),
-        relation: safeStr(data.relation),
-        recommendedBy: safeStr(data.recommendedBy),
+        // Complex fields (map q_ equivalents if main are missing)
+        addressUAE: safeStr(data.addressUAE) || safeStr(data.q_addr_uae),
+        addressIndia: safeStr(data.addressIndia) || safeStr(data.q_addr_ind),
+        nominee: safeStr(data.nominee) || safeStr(data.q_nominee),
+        relation: safeStr(data.relation) || safeStr(data.q_relation),
+        recommendedBy: safeStr(data.recommendedBy) || safeStr(data.q_rec),
         
         // Arrays
         permissions: Array.isArray(data.permissions) ? data.permissions : [],
         assignedMandalams: Array.isArray(data.assignedMandalams) ? data.assignedMandalams : [],
         
-        password: pwd, // Use the resolved password
+        password: pwd, 
         isImported: !!data.isImported,
         paymentRemarks: safeStr(data.paymentRemarks),
         paymentProofUrl: safeStr(data.paymentProofUrl) || safeStr(data.paymentProof),
@@ -131,7 +174,7 @@ const normalizeUser = (doc: any): User => {
         approvedAt: safeStr(data.approvedAt),
         
         // Source detection
-        source: safeStr(data.source) || (data.membershipNo ? 'WEB' : 'APP'),
+        source: safeStr(data.source) || (data.q_fullname ? 'APP' : 'WEB'),
         
         // Ensure customData is an object
         customData: typeof data.customData === 'object' && data.customData !== null ? data.customData : {}
@@ -364,13 +407,18 @@ export const StorageService = {
   updateUser: async (userId: string, updates: Partial<User>): Promise<void> => {
     const userRef = doc(db, USERS_COLLECTION, userId);
     
+    // When approving a user, perform a Transaction to ensure:
+    // 1. Membership Number is generated
+    // 2. Data from App (stored in q_* fields) is moved to proper fields
     if (updates.status === UserStatus.APPROVED) {
         await runTransaction(db, async (transaction) => {
             const userSnap = await transaction.get(userRef);
             if (userSnap.exists()) {
-                const userData = userSnap.data() as User;
-                if (!userData.membershipNo) {
-                    const year = userData.registrationYear || new Date().getFullYear();
+                const rawData = userSnap.data();
+                
+                // 1. Generate Membership Number if missing
+                if (!rawData.membershipNo) {
+                    const year = rawData.registrationYear || new Date().getFullYear();
                     const counterRef = doc(db, COUNTERS_COLLECTION, `year_${year}`);
                     const counterDoc = await transaction.get(counterRef);
                     let nextSeq = 1;
@@ -382,6 +430,26 @@ export const StorageService = {
                     updates.registrationYear = year;
                     transaction.update(counterRef, { lastSequence: nextSeq });
                 }
+
+                // 2. Flatten q_* fields into main profile fields if main fields are missing/default
+                // This ensures the App (which reads raw data) sees the correct name/ID after approval
+                if ((!rawData.fullName || rawData.fullName === 'New User') && rawData.q_fullname) {
+                    updates.fullName = rawData.q_fullname;
+                }
+                if (!rawData.mobile && rawData.q_mobile) updates.mobile = rawData.q_mobile;
+                if (!rawData.email && rawData.q_email) updates.email = rawData.q_email;
+                if (!rawData.emiratesId && rawData.q_eid) updates.emiratesId = rawData.q_eid;
+                if (!rawData.password && rawData.q_password) updates.password = rawData.q_password;
+                
+                // Also update other demographic fields from q_ tags
+                if(rawData.q_addr_uae) updates.addressUAE = rawData.q_addr_uae;
+                if(rawData.q_addr_ind) updates.addressIndia = rawData.q_addr_ind;
+                if(rawData.q_nominee) updates.nominee = rawData.q_nominee;
+                if(rawData.q_relation) updates.relation = rawData.q_relation;
+                if(rawData.q_rec) updates.recommendedBy = rawData.q_rec;
+                
+                // Ensure role is mapped to valid Web Enum if it was 'member'
+                if(rawData.role === 'member') updates.role = Role.USER;
             }
             transaction.set(userRef, updates, { merge: true });
         });
