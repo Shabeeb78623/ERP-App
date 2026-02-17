@@ -137,7 +137,9 @@ export interface Notification {
   read: boolean;
   type: 'BROADCAST' | 'INDIVIDUAL';
   targetAudience?: string; 
-  recipients?: string[]; 
+  recipients?: string[];
+  imageUrl?: string;
+  link?: string;
 }
 
 export interface Message {

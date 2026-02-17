@@ -449,16 +449,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
               <h4 className="text-center text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Our Sponsors</h4>
               <div className="flex flex-wrap justify-center gap-8 items-center opacity-80 hover:opacity-100 transition-opacity">
                   {sponsors.map(sponsor => (
-                      <a 
-                          key={sponsor.id} 
-                          href={sponsor.website} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="group flex flex-col items-center gap-2 grayscale hover:grayscale-0 transition-all duration-300"
-                          title={sponsor.name}
-                      >
-                          <img src={sponsor.logoUrl} alt={sponsor.name} className="h-12 w-auto object-contain max-w-[120px]" />
-                      </a>
+                      sponsor.logoUrl ? (
+                          <a 
+                              key={sponsor.id} 
+                              href={sponsor.website || '#'} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="group flex flex-col items-center gap-2 grayscale hover:grayscale-0 transition-all duration-300"
+                              title={sponsor.name}
+                          >
+                              <img src={sponsor.logoUrl} alt={sponsor.name} className="h-12 w-auto object-contain max-w-[120px]" />
+                          </a>
+                      ) : null
                   ))}
               </div>
           </div>

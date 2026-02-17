@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, BenefitRecord, Notification } from '../types';
-import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck, Mail } from 'lucide-react';
+import { HeartHandshake, Settings, Lock, Bell, Trash2, UserCircle, CalendarCheck, Mail, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
 interface BaseProps {
@@ -16,7 +16,8 @@ interface UserBenefitsProps extends BaseProps {
 }
 
 export const UserBenefits: React.FC<UserBenefitsProps> = ({ user, benefits }) => {
-    const userBenefits = benefits.filter(b => b.userId === user.id);
+    // Exact ID match, trimming any whitespace from user inputs if present in DB
+    const userBenefits = benefits.filter(b => b.userId.trim() === user.id.trim());
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">
@@ -170,7 +171,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ user, onUpdate
 
 // --- Notifications View ---
 export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [] }) => {
-    // Filter notifications logic
+    // Robust filtering logic
     const myNotifs = notifications.filter(n => {
          // 1. Direct recipient check (highest priority)
          if (n.recipients && n.recipients.length > 0) {
@@ -179,11 +180,13 @@ export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [
          
          // 2. Broadcast check
          if (n.type === 'BROADCAST') {
-             if (n.targetAudience === 'All Members' || n.targetAudience === 'ALL') return true;
-             // Mandalam specific broadcast
-             if (n.targetAudience === `${user.mandalam} Members`) return true;
-             // Custom text match fallback
-             if (n.targetAudience === 'My Members' && user.mandalam) return true; // Assuming context implies same mandalam
+             const target = (n.targetAudience || '').toLowerCase().trim();
+             // Broad match
+             if (target === 'all members' || target === 'all') return true;
+             // Mandalam specific match
+             if (user.mandalam && target.includes(user.mandalam.toLowerCase())) return true;
+             // Fallback context match
+             if (target === 'my members') return true; 
          }
          
          return false;
@@ -203,16 +206,39 @@ export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [
                     <span className="text-xs font-bold bg-blue-50 text-primary px-3 py-1 rounded-full">{myNotifs.length} Messages</span>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                     {myNotifs.length > 0 ? (
                         myNotifs.map(n => (
-                            <div key={n.id} className="p-5 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-colors group">
+                            <div key={n.id} className="p-6 border border-slate-100 rounded-xl hover:bg-slate-50/50 transition-colors group relative overflow-hidden">
                                 <div className="flex justify-between items-start mb-2">
-                                    <h4 className="font-bold text-slate-900">{n.title}</h4>
+                                    <h4 className="font-bold text-slate-900 text-lg">{n.title}</h4>
                                     <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">{n.date}</span>
                                 </div>
-                                <p className="text-slate-600 text-sm leading-relaxed mb-3">{n.message}</p>
-                                <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                
+                                <p className="text-slate-600 text-sm leading-relaxed mb-4 whitespace-pre-wrap">{n.message}</p>
+                                
+                                {/* Rich Media */}
+                                {(n.imageUrl || n.link) && (
+                                    <div className="mt-4 mb-2 space-y-3">
+                                        {n.imageUrl && (
+                                            <div className="rounded-lg overflow-hidden border border-slate-200">
+                                                <img src={n.imageUrl} alt="Attachment" className="max-w-full h-auto max-h-64 object-cover" />
+                                            </div>
+                                        )}
+                                        {n.link && (
+                                            <a 
+                                                href={n.link} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-2 text-primary hover:underline text-sm font-bold bg-blue-50 w-fit px-3 py-2 rounded-lg"
+                                            >
+                                                <LinkIcon className="w-4 h-4" /> Open Link
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity mt-2">
                                     <button 
                                         onClick={() => handleClear(n.id)}
                                         className="text-xs text-red-500 hover:text-red-700 font-bold flex items-center gap-1"

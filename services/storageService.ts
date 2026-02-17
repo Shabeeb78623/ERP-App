@@ -480,10 +480,19 @@ export const StorageService = {
       const s = await getDocs(collection(db, BENEFITS_COLLECTION));
       return s.docs.map(d => d.data() as BenefitRecord);
   },
-  addBenefit: async (b: BenefitRecord) => { await setDoc(doc(db, BENEFITS_COLLECTION, b.id), b); },
+  addBenefit: async (b: BenefitRecord) => { 
+      const safeBenefit = { ...b, amount: Number(b.amount) };
+      await setDoc(doc(db, BENEFITS_COLLECTION, b.id), safeBenefit); 
+  },
   deleteBenefit: async (id: string) => { await deleteDoc(doc(db, BENEFITS_COLLECTION, id)); },
 
-  addNotification: async (n: Notification) => { await setDoc(doc(db, NOTIFICATIONS_COLLECTION, n.id), n); },
+  addNotification: async (n: Notification) => { 
+      const safeNotif = { ...n };
+      if (!safeNotif.imageUrl) safeNotif.imageUrl = '';
+      if (!safeNotif.link) safeNotif.link = '';
+      // Ensure alias fields for external apps compatibility if needed
+      await setDoc(doc(db, NOTIFICATIONS_COLLECTION, n.id), safeNotif); 
+  },
   deleteNotification: async (id: string) => { await deleteDoc(doc(db, NOTIFICATIONS_COLLECTION, id)); },
 
   sendMessage: async (m: Message) => { 
@@ -512,19 +521,24 @@ export const StorageService = {
   },
 
   addSponsor: async (s: Sponsor) => { 
-      const safeSponsor = { ...s };
+      const safeSponsor: any = { ...s };
       if (safeSponsor.website === undefined) safeSponsor.website = '';
+      // Save 'image' alias for external app compatibility
+      safeSponsor.image = s.logoUrl;
       await setDoc(doc(db, SPONSORS_COLLECTION, s.id), safeSponsor); 
   },
 
   deleteSponsor: async (id: string) => { await deleteDoc(doc(db, SPONSORS_COLLECTION, id)); },
 
   addNewsEvent: async (n: NewsEvent) => { 
-      const safeNews = { ...n };
+      const safeNews: any = { ...n };
       if (safeNews.imageUrl === undefined) safeNews.imageUrl = '';
       if (safeNews.location === undefined) safeNews.location = '';
-      if (safeNews.link === undefined) safeNews.link = ''; // Sanitize link
+      if (safeNews.link === undefined) safeNews.link = ''; 
       if (safeNews.date === undefined) safeNews.date = new Date().toLocaleDateString();
+      // Alias for external apps
+      safeNews.image = n.imageUrl;
+      safeNews.url = n.link;
       await setDoc(doc(db, NEWS_COLLECTION, n.id), safeNews); 
   },
   deleteNewsEvent: async (id: string) => { await deleteDoc(doc(db, NEWS_COLLECTION, id)); },
