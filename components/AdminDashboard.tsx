@@ -251,7 +251,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
   ));
 
   // Actions
-  const handleApproveUser = async (id: string) => { if(confirm("Are you sure you want to APPROVE this user?")) { await StorageService.updateUser(id, { status: UserStatus.APPROVED, approvedBy: currentUser.fullName, approvedAt: new Date().toLocaleDateString() }); } };
+  const handleApproveUser = async (id: string) => { 
+      if(confirm("Are you sure you want to APPROVE this user?")) { 
+          try {
+              await StorageService.updateUser(id, { 
+                  status: UserStatus.APPROVED, 
+                  approvedBy: currentUser.fullName, 
+                  approvedAt: new Date().toLocaleDateString() 
+              }); 
+          } catch (e: any) {
+              console.error(e);
+              alert("Error approving user: " + e.message);
+          }
+      } 
+  };
   const handleRejectUser = async (id: string) => { if(confirm("Are you sure you want to REJECT this user?")) { await StorageService.updateUser(id, { status: UserStatus.REJECTED }); } };
   const handleApprovePayment = async (id: string) => { if(confirm("Confirm payment received and approve user?")) { await StorageService.updateUser(id, { paymentStatus: PaymentStatus.PAID, status: UserStatus.APPROVED, approvedBy: currentUser.fullName, approvedAt: new Date().toLocaleDateString() }); } };
   const handleRevokePayment = async (id: string) => { if(confirm("Action: REVOKE PAYMENT\n\nThis will mark the user as UNPAID. They will lose access to benefits/ID card until paid again.\n\nContinue?")) { await StorageService.updateUser(id, { paymentStatus: PaymentStatus.UNPAID }); } };

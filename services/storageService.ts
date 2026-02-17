@@ -22,7 +22,7 @@ import { MANDALAMS, EMIRATES } from '../constants';
 const USERS_COLLECTION = 'users';
 const BENEFITS_COLLECTION = 'benefits';
 const NOTIFICATIONS_COLLECTION = 'notifications';
-const MESSAGES_COLLECTION = 'support_chats'; // Changed to match external App
+const MESSAGES_COLLECTION = 'support_chats'; 
 const YEARS_COLLECTION = 'years';
 const QUESTIONS_COLLECTION = 'questions';
 const SETTINGS_COLLECTION = 'settings';
@@ -68,23 +68,16 @@ const deleteCollectionInBatches = async (collectionName: string) => {
 };
 
 // --- DATA NORMALIZATION HELPER ---
-// This prevents crashes when external apps write incomplete data
 const normalizeUser = (doc: any): User => {
     const data = doc.data();
     
-    // Helper to safely get string
     const safeStr = (val: any) => {
         if (val === null || val === undefined) return '';
-        // Handle Firestore Timestamp objects if they appear
         if (typeof val === 'object' && typeof val.toDate === 'function') {
              try { return val.toDate().toLocaleDateString(); } catch (e) { return ''; }
         }
         return String(val);
     };
-
-    // --- MAPPING LOGIC FOR EXTERNAL APP DATA ---
-    // The mobile app writes data to q_* fields and sets name to "New User". 
-    // We must prioritize the specific q_ fields if the main fields are generic/empty.
 
     let realFullName = safeStr(data.fullName);
     if ((!realFullName || realFullName === 'New User') && data.q_fullname) {
@@ -103,29 +96,21 @@ const normalizeUser = (doc: any): User => {
 
     const eid = safeStr(data.emiratesId) || safeStr(data.q_eid);
     
-    // Password Logic: 
-    // 1. Check explicit password field
-    // 2. Check q_password (from app form)
-    // 3. Fallback to Emirates ID
     let pwd = safeStr(data.password);
     if (!pwd && data.q_password) pwd = safeStr(data.q_password);
     if (!pwd && eid) pwd = eid;
 
-    // Role Mapping: App uses "member", Web uses "USER"
     let realRole = Role.USER;
     if (data.role === 'MASTER_ADMIN') realRole = Role.MASTER_ADMIN;
     else if (data.role === 'MANDALAM_ADMIN') realRole = Role.MANDALAM_ADMIN;
     else if (data.role === 'CUSTOM_ADMIN') realRole = Role.CUSTOM_ADMIN;
-    // Treat 'member' (app) or anything else as USER
     
-    // Mandalam/Emirate Mapping (Handle raw strings from app)
     const rawMandalam = data.mandalam || data.q_mandalam;
     const rawEmirate = data.emirate || data.q_emirate;
 
-    // Helper to match enum case-insensitively
     const matchEnum = (enumObj: any, val: string, defaultVal: string) => {
         if (!val) return defaultVal;
-        const normalized = val.toString().toLowerCase().trim().replace(/_/g, ' '); // Handle "ABU_DHABI" vs "Abu Dhabi"
+        const normalized = val.toString().toLowerCase().trim().replace(/_/g, ' '); 
         const found = Object.values(enumObj).find((e: any) => 
             e.toString().toLowerCase().replace(/_/g, ' ') === normalized
         );
@@ -139,44 +124,29 @@ const normalizeUser = (doc: any): User => {
         mobile: realMobile,
         whatsapp: safeStr(data.whatsapp) || safeStr(data.q_whatsapp) || realMobile,
         emiratesId: eid,
-        
-        // Enums with robust fallback
         mandalam: matchEnum(Mandalam, rawMandalam, Mandalam.VATAKARA) as Mandalam,
         emirate: matchEnum(Emirate, rawEmirate, Emirate.DUBAI) as Emirate,
-        
         status: (Object.values(UserStatus).includes(data.status) ? data.status : UserStatus.PENDING) as UserStatus,
         paymentStatus: (Object.values(PaymentStatus).includes(data.paymentStatus) ? data.paymentStatus : PaymentStatus.UNPAID) as PaymentStatus,
         role: realRole,
-        
         registrationYear: Number(data.registrationYear) || new Date().getFullYear(),
-        
-        // Check multiple fields for photo
         photoUrl: safeStr(data.photoUrl) || safeStr(data.photo) || safeStr(data.image) || safeStr(data.profilePic),
         membershipNo: safeStr(data.membershipNo),
         registrationDate: safeStr(data.registrationDate) || new Date().toLocaleDateString(),
-        
-        // Complex fields (map q_ equivalents if main are missing)
         addressUAE: safeStr(data.addressUAE) || safeStr(data.q_addr_uae),
         addressIndia: safeStr(data.addressIndia) || safeStr(data.q_addr_ind),
         nominee: safeStr(data.nominee) || safeStr(data.q_nominee),
         relation: safeStr(data.relation) || safeStr(data.q_relation),
         recommendedBy: safeStr(data.recommendedBy) || safeStr(data.q_rec),
-        
-        // Arrays
         permissions: Array.isArray(data.permissions) ? data.permissions : [],
         assignedMandalams: Array.isArray(data.assignedMandalams) ? data.assignedMandalams : [],
-        
         password: pwd, 
         isImported: !!data.isImported,
         paymentRemarks: safeStr(data.paymentRemarks),
         paymentProofUrl: safeStr(data.paymentProofUrl) || safeStr(data.paymentProof),
         approvedBy: safeStr(data.approvedBy),
         approvedAt: safeStr(data.approvedAt),
-        
-        // Source detection
         source: safeStr(data.source) || (data.q_fullname ? 'APP' : 'WEB'),
-        
-        // Ensure customData is an object
         customData: typeof data.customData === 'object' && data.customData !== null ? data.customData : {}
     };
 };
@@ -191,36 +161,26 @@ const normalizeNews = (doc: any): NewsEvent => {
         description: safeStr(data.description),
         date: safeStr(data.date),
         type: (data.type === 'EVENT' || data.type === 'NEWS') ? data.type : 'NEWS',
-        // Check multiple variations for image field
         imageUrl: safeStr(data.imageUrl) || safeStr(data.image) || safeStr(data.img), 
         location: safeStr(data.location),
         link: safeStr(data.link)
     };
 };
 
-// Helper for Message Content Normalization
 const normalizeMessageContent = (data: any): string => {
-    // 1. Try explicit fields
     let content = data.content || data.message || data.body || data.text || '';
-    
-    // 2. If content is an object (common with Draftjs or Firestore maps), try to extract text
     if (typeof content === 'object' && content !== null) {
         if (content.text) return String(content.text);
         if (content.blocks && Array.isArray(content.blocks)) {
             return content.blocks.map((b: any) => b.text).join('\n');
         }
-        return JSON.stringify(content); // Last resort
+        return JSON.stringify(content);
     }
-    
     content = String(content);
-    
-    // 3. Filter out empty JSON brackets which often appear as default values
     if (content === '{}' || content === '[]') return '';
-    
     return content;
 };
 
-// Helper for User Name Normalization in Messages
 const normalizeMessageUser = (data: any): string => {
     if (data.userName) return String(data.userName);
     if (data.name) return String(data.name);
@@ -242,7 +202,6 @@ export const StorageService = {
           }
       }, (error) => {
           console.error("Firestore Error:", error);
-          // Don't break the app on error, return admin
           callback([ADMIN_USER]);
       });
   },
@@ -265,12 +224,10 @@ export const StorageService = {
   },
 
   subscribeToMessages: (callback: (messages: Message[]) => void) => {
-      // Subscribe to 'support_chats' as requested
       const q = query(collection(db, MESSAGES_COLLECTION));
       return onSnapshot(q, (snapshot) => {
           const msgs = snapshot.docs.map(doc => {
               const d = doc.data();
-              
               return {
                   id: doc.id,
                   userId: d.userId || '',
@@ -280,7 +237,7 @@ export const StorageService = {
                   content: normalizeMessageContent(d), 
                   date: d.date || new Date().toISOString(),
                   status: d.status || 'NEW',
-                  adminReply: normalizeMessageContent({ content: d.adminReply }) // Use same normalization for reply
+                  adminReply: normalizeMessageContent({ content: d.adminReply }) 
               } as Message;
           });
           msgs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -299,9 +256,7 @@ export const StorageService = {
   subscribeToNews: (callback: (news: NewsEvent[]) => void) => {
       const q = query(collection(db, NEWS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
-          // Use normalizeNews to handle different field names
           const items = snapshot.docs.map(doc => normalizeNews(doc));
-          // Sort by date descending
           items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(items);
       });
@@ -407,9 +362,6 @@ export const StorageService = {
   updateUser: async (userId: string, updates: Partial<User>): Promise<void> => {
     const userRef = doc(db, USERS_COLLECTION, userId);
     
-    // When approving a user, perform a Transaction to ensure:
-    // 1. Membership Number is generated
-    // 2. Data from App (stored in q_* fields) is moved to proper fields
     if (updates.status === UserStatus.APPROVED) {
         await runTransaction(db, async (transaction) => {
             const userSnap = await transaction.get(userRef);
@@ -428,11 +380,13 @@ export const StorageService = {
                     const membershipNo = `${year}${nextSeq.toString().padStart(4, '0')}`;
                     updates.membershipNo = membershipNo;
                     updates.registrationYear = year;
-                    transaction.update(counterRef, { lastSequence: nextSeq });
+                    
+                    // CRITICAL FIX: Use set with merge instead of update, 
+                    // because if year_2026 doesn't exist, update() will throw an error.
+                    transaction.set(counterRef, { lastSequence: nextSeq }, { merge: true });
                 }
 
-                // 2. Flatten q_* fields into main profile fields if main fields are missing/default
-                // This ensures the App (which reads raw data) sees the correct name/ID after approval
+                // 2. Flatten q_* fields into main profile fields
                 if ((!rawData.fullName || rawData.fullName === 'New User') && rawData.q_fullname) {
                     updates.fullName = rawData.q_fullname;
                 }
@@ -441,14 +395,12 @@ export const StorageService = {
                 if (!rawData.emiratesId && rawData.q_eid) updates.emiratesId = rawData.q_eid;
                 if (!rawData.password && rawData.q_password) updates.password = rawData.q_password;
                 
-                // Also update other demographic fields from q_ tags
                 if(rawData.q_addr_uae) updates.addressUAE = rawData.q_addr_uae;
                 if(rawData.q_addr_ind) updates.addressIndia = rawData.q_addr_ind;
                 if(rawData.q_nominee) updates.nominee = rawData.q_nominee;
                 if(rawData.q_relation) updates.relation = rawData.q_relation;
                 if(rawData.q_rec) updates.recommendedBy = rawData.q_rec;
                 
-                // Ensure role is mapped to valid Web Enum if it was 'member'
                 if(rawData.role === 'member') updates.role = Role.USER;
             }
             transaction.set(userRef, updates, { merge: true });
