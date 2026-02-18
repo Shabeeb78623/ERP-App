@@ -181,11 +181,13 @@ export const UserNotifications: React.FC<BaseProps> = ({ user, notifications = [
          // 2. Broadcast check
          if (n.type === 'BROADCAST') {
              const target = (n.targetAudience || '').toLowerCase().trim();
-             // Broad match
-             if (target === 'all members' || target === 'all') return true;
+             // Broad match: check for 'all', 'everyone', 'all members'
+             if (['all', 'all members', 'everyone'].includes(target)) return true;
+             
              // Mandalam specific match
              if (user.mandalam && target.includes(user.mandalam.toLowerCase())) return true;
-             // Fallback context match
+             
+             // Fallback context match for admin groups
              if (target === 'my members') return true; 
          }
          

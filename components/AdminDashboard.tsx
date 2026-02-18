@@ -296,8 +296,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
       try {
           let recipients: string[] | undefined = undefined;
           let audienceLabel = 'All Members';
-          if (notifTarget !== 'ALL') { recipients = users.filter(u => u.mandalam === notifTarget).map(u => u.id); audienceLabel = `${notifTarget} Members`; } 
-          else if (currentUser.role === Role.MANDALAM_ADMIN) { recipients = authorizedUsers.map(u => u.id); audienceLabel = 'My Members'; }
+          
+          if (notifTarget !== 'ALL') { 
+              recipients = users.filter(u => u.mandalam === notifTarget).map(u => u.id); 
+              audienceLabel = `${notifTarget} Members`; 
+          } 
+          else if (currentUser.role === Role.MANDALAM_ADMIN) { 
+              recipients = authorizedUsers.map(u => u.id); 
+              audienceLabel = 'My Members'; 
+          }
+          
+          // Force clear recipients if targeting ALL globally (Broadcast)
+          if (notifTarget === 'ALL' && currentUser.role === Role.MASTER_ADMIN) {
+              recipients = undefined;
+              audienceLabel = 'All Members';
+          }
+
           const newNotification: Notification = { 
               id: `notif-${Date.now()}`, 
               title: notifTitle, 
@@ -314,12 +328,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
           setNotifTitle(''); setNotifMessage(''); setNotifImage(''); setNotifLink('');
       } catch (e: any) { alert("Error sending notification: " + e.message); } finally { setSendingNotif(false); }
   };
+
   const handleReplyMessage = async () => {
       if (!replyMessage || !replyContent) return;
       try {
+          // 1. Mark message as replied in Database
           await StorageService.markMessageReplied(replyMessage.id, replyContent);
-          await StorageService.addNotification({ id: `notif-reply-${Date.now()}`, title: `Reply: ${replyMessage.subject}`, message: replyContent, date: new Date().toLocaleDateString(), read: false, type: 'INDIVIDUAL', recipients: [replyMessage.userId], targetAudience: 'User' });
-          setReplyMessage(null); setReplyContent(''); alert("Reply sent successfully.");
+          
+          // REMOVED: Do not send a separate notification for replies. 
+          // The message update is enough for the user view.
+          
+          setReplyMessage(null); 
+          setReplyContent(''); 
+          alert("Reply sent successfully.");
       } catch (e) { alert("Failed to send reply."); console.error(e); }
   };
   
@@ -833,29 +854,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, users, ben
                           {/* Messages Area */}
                           <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
                               {messages.filter(m => m.userId === selectedChatUser).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()).map(msg => (
-                                  <div key={msg.id} className="space-y-2">
-                                      {/* User Message */}
+                                  <div key={msg.id} className="space-y-4">
+                                      {/* User Message (Left/Incoming for Admin) */}
                                       <div className="flex gap-3">
                                           <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 mt-1 shrink-0">
                                               {resolveUserName(msg.userId, 'U').charAt(0)}
                                           </div>
-                                          <div className="bg-white border border-slate-200 p-4 rounded-r-xl rounded-bl-xl shadow-sm max-w-[80%]">
-                                              <p className="text-xs font-bold text-slate-400 mb-1">{msg.subject}</p>
-                                              <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                                              <p className="text-[10px] text-slate-400 mt-2 text-right">{new Date(msg.date).toLocaleString()}</p>
+                                          <div className="flex flex-col gap-1 max-w-[80%]">
+                                              <span className="text-[10px] text-slate-400 font-bold ml-1">{msg.subject}</span>
+                                              <div className="bg-white border border-slate-200 p-4 rounded-r-xl rounded-bl-xl shadow-sm">
+                                                  <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                                                  <p className="text-[10px] text-slate-400 mt-2 text-right">{new Date(msg.date).toLocaleString()}</p>
+                                              </div>
                                           </div>
                                       </div>
 
-                                      {/* Admin Reply or Action */}
+                                      {/* Admin Reply (Right/Outgoing) */}
                                       {msg.adminReply ? (
                                           <div className="flex gap-3 justify-end">
-                                              <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-l-xl rounded-br-xl shadow-sm max-w-[80%]">
-                                                  <p className="text-xs font-bold text-emerald-600 mb-1 flex items-center gap-1 justify-end">
-                                                      Replied <CheckCircle className="w-3 h-3"/>
-                                                  </p>
-                                                  <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{msg.adminReply}</p>
+                                              <div className="flex flex-col gap-1 items-end max-w-[80%]">
+                                                  <div className="bg-primary text-white p-4 rounded-l-xl rounded-br-xl shadow-sm">
+                                                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.adminReply}</p>
+                                                  </div>
+                                                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                      Replied <CheckCircle className="w-3 h-3 text-emerald-500"/>
+                                                  </span>
                                               </div>
-                                              <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold text-white mt-1 shrink-0">
+                                              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white mt-1 shrink-0">
                                                   A
                                               </div>
                                           </div>
