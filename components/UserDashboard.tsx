@@ -18,6 +18,7 @@ interface UserDashboardProps {
 const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateUser, isLoading, activeYear, sponsors = [], newsEvents = [], messages = [] }) => {
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [paymentProof, setPaymentProof] = useState<string>('');
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [questions, setQuestions] = useState<RegistrationQuestion[]>([]);
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
@@ -31,19 +32,70 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
       loadData();
   }, []);
 
-  const handlePaymentProofUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Helper to resize image
+  const resizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const MAX_DIM = 800; // Max 800px width or height
+
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height *= MAX_DIM / width;
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width *= MAX_DIM / height;
+              height = MAX_DIM;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              // Compress to JPEG at 60% quality
+              resolve(canvas.toDataURL('image/jpeg', 0.6));
+          } else {
+              reject(new Error("Canvas context failed"));
+          }
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePaymentProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-          if (file.size > 2 * 1024 * 1024) return alert("File size must be less than 2MB");
-          const reader = new FileReader();
-          reader.onloadend = () => {
-              setPaymentProof(reader.result as string);
-          };
-          reader.readAsDataURL(file);
+          setIsUploadingProof(true);
+          try {
+              const resizedBase64 = await resizeImage(file);
+              setPaymentProof(resizedBase64);
+          } catch (error) {
+              console.error("Image processing error", error);
+              alert("Failed to process image. Please try a different photo.");
+          } finally {
+              setIsUploadingProof(false);
+          }
       }
   };
 
   const handlePaymentSubmit = () => {
+      if (isUploadingProof) {
+          alert("Please wait for image upload to finish.");
+          return;
+      }
       // Allow submission if proof OR remarks exist
       if (!paymentRemarks.trim() && !paymentProof) {
           alert("Please enter transaction details or upload a proof.");
@@ -228,7 +280,9 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                              
                              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
                                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    {paymentProof ? (
+                                    {isUploadingProof ? (
+                                        <div className="animate-pulse text-slate-400 font-bold text-sm">Processing Image...</div>
+                                    ) : paymentProof ? (
                                         <div className="flex items-center gap-2 text-emerald-600">
                                             <ImageIcon className="w-8 h-8" />
                                             <span className="text-sm font-bold">Image Selected</span>
@@ -240,7 +294,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                                         </>
                                     )}
                                 </div>
-                                <input type="file" className="hidden" accept="image/*" onChange={handlePaymentProofUpload} />
+                                <input type="file" className="hidden" accept="image/*" onChange={handlePaymentProofUpload} disabled={isUploadingProof} />
                             </label>
 
                              <label className="text-sm font-bold text-slate-700 block mt-4">Remarks (Optional)</label>
@@ -253,7 +307,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ user, benefits, onUpdateU
                          </div>
                          <button 
                             onClick={handlePaymentSubmit}
-                            disabled={isLoading}
+                            disabled={isLoading || isUploadingProof}
                             className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark shadow-lg shadow-primary/20 transition-all disabled:opacity-70"
                          >
                              {isLoading ? 'Processing...' : 'Submit Payment'}
