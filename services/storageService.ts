@@ -227,7 +227,11 @@ export const StorageService = {
   subscribeToBenefits: (callback: (benefits: BenefitRecord[]) => void) => {
       const q = query(collection(db, BENEFITS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
-          const benefits = snapshot.docs.map(doc => doc.data() as BenefitRecord);
+          // Explicitly map doc.id to id field
+          const benefits = snapshot.docs.map(doc => ({
+              ...doc.data(),
+              id: doc.id
+          } as BenefitRecord));
           callback(benefits);
       });
   },
@@ -235,7 +239,11 @@ export const StorageService = {
   subscribeToNotifications: (callback: (notifications: Notification[]) => void) => {
       const q = query(collection(db, NOTIFICATIONS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
-          const notifs = snapshot.docs.map(doc => doc.data() as Notification);
+          // Explicitly map doc.id to id field
+          const notifs = snapshot.docs.map(doc => ({
+              ...doc.data(),
+              id: doc.id
+          } as Notification));
           notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           callback(notifs);
       });
@@ -266,7 +274,11 @@ export const StorageService = {
   subscribeToSponsors: (callback: (sponsors: Sponsor[]) => void) => {
       const q = query(collection(db, SPONSORS_COLLECTION));
       return onSnapshot(q, (snapshot) => {
-          const items = snapshot.docs.map(doc => doc.data() as Sponsor);
+          // Explicitly map doc.id to id field to allow deletion of mobile-created records
+          const items = snapshot.docs.map(doc => ({
+              ...doc.data(),
+              id: doc.id 
+          } as Sponsor));
           callback(items);
       });
   },
