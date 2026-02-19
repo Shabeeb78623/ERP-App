@@ -1,4 +1,3 @@
-
 import { db } from './firebase';
 import { 
     collection, 
@@ -446,6 +445,20 @@ export const StorageService = {
   
   deleteUser: async (userId: string): Promise<void> => {
       await deleteDoc(doc(db, USERS_COLLECTION, userId));
+  },
+  
+  deleteUsers: async (userIds: string[]): Promise<void> => {
+      const batchSize = 400; 
+      for (let i = 0; i < userIds.length; i += batchSize) {
+          const batch = writeBatch(db);
+          const chunk = userIds.slice(i, i + batchSize);
+          chunk.forEach(id => {
+              const ref = doc(db, USERS_COLLECTION, id);
+              batch.delete(ref);
+          });
+          await batch.commit();
+          await new Promise(resolve => setTimeout(resolve, 50));
+      }
   },
 
   getNextSequence: async (year: number): Promise<number> => {

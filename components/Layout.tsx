@@ -44,33 +44,69 @@ const Layout: React.FC<LayoutProps> = ({
 
   const handleExportExcel = async () => {
     const allUsers = await StorageService.getUsers();
+    const questions = await StorageService.getQuestions(); // Fetch dynamic questions
+    
     const users = allUsers.filter(u => u.role !== Role.MASTER_ADMIN);
     if (users.length === 0) {
         alert("No users to export.");
         return;
     }
 
-    const headers = [
+    // 1. Define Headers
+    const staticHeaders = [
         "Reg No", "Full Name", "Email", "Mobile", "WhatsApp", "Emirates ID", 
-        "Mandalam", "Emirate", "Status", "Payment Status", "Year"
+        "Mandalam", "Emirate", "Status", "Payment Status", "Year", "Join Date", "Approved By"
     ];
+    
+    // Dynamic headers from questions
+    const questionHeaders = questions.map(q => q.label);
+    
+    const headers = [...staticHeaders, ...questionHeaders];
 
-    const csvContent = [
-        headers.join(","),
-        ...users.map(user => [
+    // 2. Map Data
+    const csvRows = users.map(user => {
+        // Static Data
+        const staticData = [
             user.membershipNo,
-            `"${user.fullName}"`,
+            `"${(user.fullName || '').replace(/"/g, '""')}"`,
             user.email || "",
-            `"${user.mobile}"`,
-            `"${user.whatsapp}"`,
-            `"${user.emiratesId}"`,
+            `"${(user.mobile || '').replace(/"/g, '""')}"`,
+            `"${(user.whatsapp || '').replace(/"/g, '""')}"`,
+            `"${(user.emiratesId || '').replace(/"/g, '""')}"`,
             user.mandalam,
             user.emirate,
             user.status,
             user.paymentStatus,
-            user.registrationYear
-        ].join(","))
-    ].join("\n");
+            user.registrationYear,
+            user.registrationDate,
+            user.approvedBy || ''
+        ];
+
+        // Dynamic Data
+        const dynamicData = questions.map(q => {
+            let val: any = '';
+            
+            // Try System Mapping first
+            if (q.systemMapping && q.systemMapping !== 'NONE') {
+                val = (user as any)[q.systemMapping];
+            }
+            
+            // Try Custom Data if empty
+            if ((val === undefined || val === '' || val === null) && user.customData) {
+                val = user.customData[q.id];
+            }
+
+            // Formatting
+            if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+            if (typeof val === 'object') return ''; 
+            
+            return `"${String(val || '').replace(/"/g, '""')}"`;
+        });
+
+        return [...staticData, ...dynamicData].join(",");
+    });
+
+    const csvContent = [headers.join(","), ...csvRows].join("\n");
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
